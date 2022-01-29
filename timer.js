@@ -115,13 +115,13 @@ const Timer = function(memory, time) {
             // We check the frequency bit to see if it overflows
             const frequencyBitState1 = (memory.getWord(COUNTER_REG) & (1 << this.getFrequencyCheckBit())) === 0 ? 0 : 1;
 
-            if (this.divReset) { // Skip if last operation reseted div
-                this.divReset = false;
-            } else {
+            // if (this.divReset) { // Skip if last operation reseted div
+                // this.divReset = false;
+            // } else {
                 const counter = (memory.getWord(COUNTER_REG) + 1) & 0xFFFF;
                 memory.io[COUNTER_REG - 0xFF00] = counter & 0xFF;
                 memory.io[DIV_REG - 0xFF00] = counter >> 8;
-            }
+            // }
 
             const frequencyBitState2 = (memory.getWord(COUNTER_REG) & (1 << this.getFrequencyCheckBit())) === 0 ? 0 : 1;
             
