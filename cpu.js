@@ -1,17 +1,6 @@
 const fs = require('fs');
-// "use strict";
 
-// Registers
-// 16-bit	Hi	Lo	Name/Function
-// AF	A	-	Accumulator & Flags
-// BC	B	C	BC
-// DE	D	E	DE
-// HL	H	L	HL
-// SP	-	-	Stack Pointer
-// this.PC	-	-	Program Counter/Pointer
-// As shown above, most registers can be accessed either as one 16-bit register, or as two separate 8-bit registers.
-
-function CPU (memory) {
+function CPU (memory, debugOpts) {
     this.biosLoaded = 1;
     this.A = 0x11;
     this.B = 0x00;
@@ -25,10 +14,18 @@ function CPU (memory) {
     this.PC = 0x0100;
 
     this.clock = { t: 0, m: 0 } ;
-    this.t = 0;
     this.m = 0;
     this.IME = true;
+    this.dmaCycles = 0;
+    this.lastDmaValueWritten = 0;
+    this.imeChangeOpCounter = 0;
 
+    this.timestamp = Date.now();
+    this.lastPC = 0;
+    this.lastOp = 0;
+    this.recentPC = 0;
+    this.recentOp = 0;
+    
     this.get8BitReg = (reg) => {
         if (reg === 0) {
             return this.B;
@@ -104,6 +101,24 @@ function CPU (memory) {
         }
     }
 
+    this.incSP = () => {
+        if (this.SP + 1 > 0xFFFF) {
+            this.SP = 0;
+        } else {
+            this.SP++;
+        }
+    }
+
+    this.decSP = () => {
+        if (this.SP - 1 < 0) {
+            this.SP = 0xFFFF;
+        } else {
+            this.SP--;
+        }
+    }
+
+    this.testHasPassed = () => this.B == 3 && this.C == 5 && this.D == 8 && this.E == 13 && this.H == 21 && this.L == 34;
+
     // 8-bit Load instructions
     // Mnemonic	Encoding	Clock cycles	Flags	Description
 
@@ -120,12 +135,15 @@ function CPU (memory) {
         const r2 = op & 0b00000111;
         
         if (r1 === r2) {
+            if (op === 0x40) {
+                debugOpts.testCallback(this.testHasPassed());
+            }
+
             return;
         }
 
         this.set8BitReg(r1, this.get8BitReg(r2));
         this.m = 1;
-        this.t = 4;
     }
 
     // 0x06 0x0E 0x16 0x1E 0x26 0x2E 0x3E
@@ -135,7 +153,6 @@ function CPU (memory) {
         const nn = memory.getByte(this.PC++);
         this.set8BitReg(r1, nn);
         this.m = 2;
-        this.t = 8;
     }
 
     // 0x46 0x4e 0x56 0x5e 0x66 0x6e 0x7e
@@ -145,7 +162,6 @@ function CPU (memory) {
         const value = memory.getByte(this.get16BitReg(2));
         this.set8BitReg(r1, value);
         this.m = 2;
-        this.t = 8;
     }
 
     // 0x70 0x71 0x72 0x73 0x74 0x75 0x77
@@ -154,7 +170,6 @@ function CPU (memory) {
         const r1 = op & 0b00000111;
         memory.setByte(this.get16BitReg(2), this.get8BitReg(r1));
         this.m = 2;
-        this.t = 8;
     }
 
     // 0x36
@@ -163,7 +178,6 @@ function CPU (memory) {
         const nn = memory.getByte(this.PC++);
         memory.setByte(this.get16BitReg(2), nn);
         this.m = 3;
-        this.t = 12;
     }
 
     // 0x0A
@@ -171,7 +185,6 @@ function CPU (memory) {
     const ldABC = (op) => {
         this.A = memory.getByte(this.get16BitReg(0));
         this.m = 2;
-        this.t = 8;
     }
 
     // 0x1A
@@ -179,7 +192,6 @@ function CPU (memory) {
     const ldADE = (op) => {
         this.A = memory.getByte(this.get16BitReg(1));
         this.m = 2;
-        this.t = 8;
     }
 
     // 0xFA
@@ -189,7 +201,6 @@ function CPU (memory) {
         this.A = memory.getByte(nn);
         this.PC += 2;
         this.m = 4;
-        this.t = 16;
     }
 
     // 0x02
@@ -197,7 +208,6 @@ function CPU (memory) {
     const ldBCA = (op) => {
         memory.setByte(this.get16BitReg(0), this.A);
         this.m = 2;
-        this.t = 8;
     }
 
     // 0x12
@@ -205,7 +215,6 @@ function CPU (memory) {
     const ldDEA = (op) => {
         memory.setByte(this.get16BitReg(1), this.A);
         this.m = 2;
-        this.t = 8;
     }
 
     // 0xEA
@@ -215,7 +224,6 @@ function CPU (memory) {
         const n2 = memory.getByte(this.PC++);
         memory.setByte((n2 << 8) + n1, this.A);
         this.m = 4;
-        this.t = 16;
     }
 
     // 0xF0
@@ -224,7 +232,6 @@ function CPU (memory) {
         const nn = memory.getByte(this.PC++);
         this.A = memory.getByte(0xFF00 + nn);
         this.m = 3;
-        this.t = 12;
     }
     // 0xE0
     // ld (FF00+n),A	E0 nn	12	––	write to io-port n (memory FF00+n)
@@ -232,7 +239,6 @@ function CPU (memory) {
         const nn = memory.getByte(this.PC++);
         memory.setByte(0xFF00 + nn, this.A);
         this.m = 3;
-        this.t = 12;
     }
 
     // 0xF2
@@ -240,7 +246,6 @@ function CPU (memory) {
     const ldhAC = (op) => {
         this.A = memory.getByte(0xFF00 + this.C);
         this.m = 2;
-        this.t = 8;
     }
 
     // 0xE2
@@ -248,7 +253,6 @@ function CPU (memory) {
     const ldhCA = (op) => {
         memory.setByte(0xFF00 + this.C, this.A);
         this.m = 2;
-        this.t = 8;
     }
 
     // 0x22
@@ -258,7 +262,6 @@ function CPU (memory) {
         memory.setByte(HL, this.A);
         this.set16BitReg(2, HL + 1);
         this.m = 2;
-        this.t = 8;
     }
 
     // 0x2A
@@ -268,7 +271,6 @@ function CPU (memory) {
         this.A = memory.getByte(HL);
         this.set16BitReg(2, HL + 1);
         this.m = 2;
-        this.t = 8;
     }
 
     // 0x32
@@ -278,7 +280,6 @@ function CPU (memory) {
         memory.setByte(HL, this.A);
         this.set16BitReg(2, HL - 1);
         this.m = 2;
-        this.t = 8;
     }
 
     // 0x3A
@@ -288,7 +289,6 @@ function CPU (memory) {
         this.A = memory.getByte(HL);
         this.set16BitReg(2, HL - 1);
         this.m = 2;
-        this.t = 8;
     }
 
     // 16-bit Load instructions
@@ -302,7 +302,6 @@ function CPU (memory) {
         this.set16BitReg(rr, nn);
         this.PC += 2;
         this.m = 3;
-        this.t = 12;
     }
 
     // 0x08
@@ -312,7 +311,6 @@ function CPU (memory) {
         memory.setWord(nn, this.SP);
         this.PC += 2;
         this.m = 5;
-        this.t = 20;
     }
 
     // 0xF9
@@ -320,7 +318,6 @@ function CPU (memory) {
     const ldSPHL = (op) => {
         this.SP = this.get16BitReg(2);
         this.m = 2;
-        this.t = 8;
     }
 
     // 0xC5 0xD5 0xE5 0xF5
@@ -329,16 +326,20 @@ function CPU (memory) {
         const rr = op >> 4 & 0b0000011;
 
         if (rr === 0b11) { // AF special case
-            memory.setByte(this.SP - 1, this.A);
-            memory.setByte(this.SP - 2, this.F);
+            this.decSP();
+            memory.setByte(this.SP, this.A);
+            this.decSP();
+            memory.setByte(this.SP, this.F);
         } else {
             const value = this.get16BitReg(rr);
-            memory.setWord(this.SP - 2, value);
+            this.decSP();
+            memory.setByte(this.SP, value >> 8);
+            this.decSP();
+            memory.setByte(this.SP, value & 0xFF);
         }
 
-        this.set16BitReg(3, this.SP - 2);   
+        // this.set16BitReg(3, newSP);   
         this.m = 4;
-        this.t = 16;
     }
 
     // 0xC1 0xD1 0xE1 0xF1
@@ -346,17 +347,22 @@ function CPU (memory) {
     const poprr = (op) => {
         const rr = op >> 4 & 0b00000011;
         
+
         if (rr === 0b11) { // AF special case
             this.F = memory.getByte(this.SP) & 0b11110000;
-            this.A = memory.getByte(this.SP + 1);
+            this.incSP();
+            this.A = memory.getByte(this.SP);
+            this.incSP();
         } else {
-            const value = memory.getWord(this.SP);
-            this.set16BitReg(rr, value);
+            const value1 = memory.getByte(this.SP);
+            this.incSP();
+            const value2 = memory.getByte(this.SP);
+            this.incSP();
+            this.set16BitReg(rr, (value2 << 8) | value1);
         }
 
-        this.set16BitReg(3, this.SP + 2);
+        // this.set16BitReg(3, newSP);
         this.m = 3;
-        this.t = 12;
     }
 
     // 8-bit Arithmetic/Logic instructions
@@ -377,7 +383,6 @@ function CPU (memory) {
         if (h) this.F = this.F | 0b00100000;
         if (c) this.F = this.F | 0b00010000;
         this.m = 1;
-        this.t = 4;
     }
 
     // 0xC6
@@ -394,7 +399,6 @@ function CPU (memory) {
         if (h) this.F = this.F | 0b00100000;
         if (c) this.F = this.F | 0b00010000;
         this.m = 2;
-        this.t = 8;
     }
 
     // 0x86
@@ -411,7 +415,6 @@ function CPU (memory) {
         if (h) this.F = this.F | 0b00100000;
         if (c) this.F = this.F | 0b00010000;
         this.m = 2;
-        this.t = 8;
     }
 
     // 0x88 0x89 0x8A 0x8B 0x8C 0x8D 0x8F
@@ -429,7 +432,6 @@ function CPU (memory) {
         if (h) this.F = this.F | 0b00100000;
         if (c) this.F = this.F | 0b00010000;
         this.m = 1;
-        this.t = 4;
     }
 
     // 0xCE
@@ -447,7 +449,6 @@ function CPU (memory) {
         if (h) this.F = this.F | 0b00100000;
         if (c) this.F = this.F | 0b00010000;
         this.m = 2;
-        this.t = 8;
     }
 
     // 0x8E
@@ -465,7 +466,6 @@ function CPU (memory) {
         if (h) this.F = this.F | 0b00100000;
         if (c) this.F = this.F | 0b00010000;
         this.m = 2;
-        this.t = 8;
     }
 
     // 0x90 0x91 0x92 0x93 0x94 0x95 0x97
@@ -482,7 +482,6 @@ function CPU (memory) {
         if (h) this.F = this.F | 0b00100000;
         if (c) this.F = this.F | 0b00010000;
         this.m = 1;
-        this.t = 4;
     }
 
     // 0xD6
@@ -499,7 +498,6 @@ function CPU (memory) {
         if (h) this.F = this.F | 0b00100000;
         if (c) this.F = this.F | 0b00010000;
         this.m = 2;
-        this.t = 8;
     }
 
     // 0x96
@@ -516,7 +514,6 @@ function CPU (memory) {
         if (h) this.F = this.F | 0b00100000;
         if (c) this.F = this.F | 0b00010000;
         this.m = 2;
-        this.t = 8;
     }
 
     // 0x98 0x99 0x9A 0x9B 0x9C 0x9D 0x9F
@@ -534,7 +531,6 @@ function CPU (memory) {
         if (h) this.F = this.F | 0b00100000;
         if (c) this.F = this.F | 0b00010000;
         this.m = 1;
-        this.t = 4;
     }
 
     // 0xDE
@@ -552,7 +548,6 @@ function CPU (memory) {
         if (h) this.F = this.F | 0b00100000;
         if (c) this.F = this.F | 0b00010000;
         this.m = 2;
-        this.t = 8;
     }
 
     // 0x9E
@@ -570,7 +565,6 @@ function CPU (memory) {
         if (h) this.F = this.F | 0b00100000;
         if (c) this.F = this.F | 0b00010000;
         this.m = 2;
-        this.t = 8;
     }
 
     // 0xA0 0xA1 0xA2 0xA3 0xA4 0xA5 0xA7
@@ -583,7 +577,6 @@ function CPU (memory) {
         this.F = 0b00100000;
         if (this.A === 0) this.F = this.F | 0b10000000;
         this.m = 1;
-        this.t = 4;
     }
 
     // 0xE6
@@ -595,7 +588,6 @@ function CPU (memory) {
         this.F = 0b00100000;
         if (this.A === 0) this.F = this.F | 0b10000000;
         this.m = 2;
-        this.t = 8;
     }
 
     // 0xA6
@@ -607,7 +599,6 @@ function CPU (memory) {
         this.F = 0b00100000;
         if (this.A === 0) this.F = this.F | 0b10000000;
         this.m = 2;
-        this.t = 8;
     }
 
     // 0xA8 0xA9 0xAA 0xAB 0xAC 0xAD 0xAF
@@ -619,7 +610,6 @@ function CPU (memory) {
         this.F = 0b00000000;
         if (this.A === 0) this.F = this.F | 0b10000000;
         this.m = 1;
-        this.t = 4;
     }
 
     // 0xEE
@@ -631,7 +621,6 @@ function CPU (memory) {
         this.F = 0b00000000;
         if (this.A === 0) this.F = this.F | 0b10000000;
         this.m = 2;
-        this.t = 8;
     }
 
     // 0xAE
@@ -643,7 +632,6 @@ function CPU (memory) {
         this.F = 0b00000000;
         if (this.A === 0) this.F = this.F | 0b10000000;
         this.m = 2;
-        this.t = 8;
     }
 
     // 0xB0 0xB1 0xB2 0xB3 0xB4 0xB5 0xB7
@@ -655,7 +643,6 @@ function CPU (memory) {
         this.F = 0b00000000;
         if (this.A === 0) this.F = this.F | 0b10000000;
         this.m = 1;
-        this.t = 4;
     }
 
     // 0xF6
@@ -667,7 +654,6 @@ function CPU (memory) {
         this.F = 0b00000000;
         if (this.A === 0) this.F = this.F | 0b10000000;
         this.m = 2;
-        this.t = 8;
     }
 
     // 0xB6
@@ -679,7 +665,6 @@ function CPU (memory) {
         this.F = 0b00000000;
         if (this.A === 0) this.F = this.F | 0b10000000;
         this.m = 2;
-        this.t = 8;
     }
 
     // 0xB8 0xB9 0xBA 0xBB 0xBC 0xBD 0xBF
@@ -695,7 +680,6 @@ function CPU (memory) {
         if (c) this.F = this.F | 0b00010000;
         if (h) this.F = this.F | 0b00100000;
         this.m = 1;
-        this.t = 4;
     }
 
     // 0xFE
@@ -711,7 +695,6 @@ function CPU (memory) {
         if (c) this.F = this.F | 0b00010000;
         if (h) this.F = this.F | 0b00100000;
         this.m = 2;
-        this.t = 8;
     }
 
     // 0xBE
@@ -727,7 +710,6 @@ function CPU (memory) {
         if (c) this.F = this.F | 0b00010000;
         if (h) this.F = this.F | 0b00100000;
         this.m = 2;
-        this.t = 8;
     }
 
     // 0x04 0x14 0x24 0x0C 0x1C 0x2C 0x3C
@@ -742,7 +724,6 @@ function CPU (memory) {
         if (this.get8BitReg(r) === 0) this.F = this.F | 0b10000000;
         if (h) this.F = this.F | 0b00100000;
         this.m = 1;
-        this.t = 4;
     }
 
     // 0x34
@@ -758,7 +739,6 @@ function CPU (memory) {
         if (HL === 0) this.F = this.F | 0b10000000;
         if (h) this.F = this.F | 0b00100000;
         this.m = 3;
-        this.t = 12;
     }
 
     // 0x05 0x15 0x25 0x0D 0x1D 0x2D 0x3D
@@ -773,7 +753,6 @@ function CPU (memory) {
         if (this.get8BitReg(r) === 0) this.F = this.F | 0b10000000;
         if (h) this.F = this.F | 0b00100000;
         this.m = 1;
-        this.t = 4;
     }
 
     // 0x35
@@ -791,7 +770,6 @@ function CPU (memory) {
         if (HL === 0) this.F = this.F | 0b10000000;
         if (h) this.F = this.F | 0b00100000;
         this.m = 3;
-        this.t = 12;
     }
 
     // 0x27
@@ -821,7 +799,6 @@ function CPU (memory) {
 
         this.F &= 0b11011111;
         this.m = 1;
-        this.t = 4;
     }
 
     // 0x2F
@@ -831,7 +808,6 @@ function CPU (memory) {
         this.F = this.F & 0b10010000;
         this.F = this.F | 0b01100000;
         this.m = 1;
-        this.t = 4;
     }
 
     // 16-bit Arithmetic/Logic instructions
@@ -854,7 +830,6 @@ function CPU (memory) {
         if (c) this.F = this.F | 0b00010000;
         if (h) this.F = this.F | 0b00100000;
         this.m = 2;
-        this.t = 8;
     }
 
     // 0x03 0x13 0x23 0x33
@@ -863,7 +838,6 @@ function CPU (memory) {
         const rr = this.get16BitReg(op >> 4 & 0b11);
         this.set16BitReg(op >> 4 & 0b11, rr + 1);
         this.m = 2;
-        this.t = 8;
     }
 
 
@@ -873,7 +847,6 @@ function CPU (memory) {
         const rr = this.get16BitReg(op >> 4 & 0b11);
         this.set16BitReg(op >> 4 & 0b11, rr - 1);
         this.m = 2;
-        this.t = 8;
     }
 
     // 0xE8
@@ -890,7 +863,6 @@ function CPU (memory) {
         if (c) this.F = this.F | 0b00010000;
         if (h) this.F = this.F | 0b00100000;
         this.m = 4;
-        this.t = 16;
     }
 
     // 0xF8
@@ -909,7 +881,6 @@ function CPU (memory) {
         if (c) this.F = this.F | 0b00010000;
         if (h) this.F = this.F | 0b00100000;
         this.m = 3;
-        this.t = 12;
     }
 
     // Rotate and Shift instructions
@@ -923,7 +894,6 @@ function CPU (memory) {
         this.F = 0b00000000;
         if (c) this.F = this.F | 0b00010000;
         this.m = 1;
-        this.t = 4;
     }
 
     // 0x17
@@ -942,7 +912,6 @@ function CPU (memory) {
 
         this.A = ((this.A << 1) + c) & 0b11111111;
         this.m = 1;
-        this.t = 4;
     }
 
     // 0x0F
@@ -953,7 +922,6 @@ function CPU (memory) {
         if (c) this.F = this.F | 0b00010000;
         this.A = (this.A >> 1) | (c * 0b10000000);
         this.m = 1;
-        this.t = 4;
     }
 
 
@@ -974,7 +942,6 @@ function CPU (memory) {
 
         this.A = (this.A >> 1) | (c * 0b10000000);
         this.m = 1;
-        this.t = 4;
     }
 
     // 0xCB01 0xCB02 0xCB03 0xCB04 0xCB05 0xCB07
@@ -987,7 +954,6 @@ function CPU (memory) {
         if (c) this.F = this.F | 0b00010000;
         if (this.A === 0) this.F = this.F | 0b10000000;
         this.m = 2;
-        this.t = 8;
     }
 
     // 0xCB06
@@ -1003,7 +969,6 @@ function CPU (memory) {
         if (c) this.F = this.F | 0b00010000;
         if (value === 0) this.F = this.F | 0b10000000;
         this.m = 4;
-        this.t = 16;
     }
 
     // 0xCB10 0xCB11 0xCB12 0xCB13 0xCB14 0xCB15 0xCB17
@@ -1025,7 +990,6 @@ function CPU (memory) {
 
         if (this.get8BitReg(r) === 0) this.F = this.F | 0b10000000;
         this.m = 2;
-        this.t = 8;
     }
 
     // 0xCB16
@@ -1047,7 +1011,6 @@ function CPU (memory) {
         memory.setByte(this.get16BitReg(2), value);
         if (value === 0) this.F = this.F | 0b10000000;
         this.m = 4;
-        this.t = 16;
     }
 
     // 0xCB08 0xCB09 0xCB0A 0xCB0B 0xCB0C 0xCB0D 0xCB0F
@@ -1060,7 +1023,6 @@ function CPU (memory) {
         this.set8BitReg(r, (this.get8BitReg(r) >> 1) | (c * 0b10000000));
         if (this.get8BitReg(r) === 0) this.F = this.F | 0b10000000;
         this.m = 2;
-        this.t = 8;
     }
 
     // 0xCB0E
@@ -1076,7 +1038,6 @@ function CPU (memory) {
         if (c) this.F = this.F | 0b00010000;
         if (value === 0) this.F = this.F | 0b10000000;
         this.m = 4;
-        this.t = 16;
     }
 
     // 0xCB18 0xCB19 0xCB1A 0xCB1B 0xCB1C 0xCB1D 0xCB1F
@@ -1098,7 +1059,6 @@ function CPU (memory) {
 
         if (this.get8BitReg(r) === 0) this.F = this.F | 0b10000000;
         this.m = 2;
-        this.t = 8;
     }
 
     // 0xCB1E
@@ -1122,7 +1082,6 @@ function CPU (memory) {
 
         if (value === 0) this.F = this.F | 0b10000000;
         this.m = 4;
-        this.t = 16;
     }
 
     // 0xCB20 0xCB21 0xCB22 0xCB23 0xCB24 0xCB25 0xCB27
@@ -1134,7 +1093,6 @@ function CPU (memory) {
         this.set8BitReg(r, (this.get8BitReg(r) << 1) & 0b11111110);
         if (this.get8BitReg(r) === 0) this.F = this.F | 0b10000000;
         this.m = 2;
-        this.t = 8;
     }
 
     // 0xCB26
@@ -1147,7 +1105,6 @@ function CPU (memory) {
         memory.setByte(this.get16BitReg(2), value);
         if (value === 0) this.F = this.F | 0b10000000;
         this.m = 4;
-        this.t = 16;
     }
 
     // 0xCB30 0xCB31 0xCB32 0xCB33 0xCB34 0xCB35 0xCB37
@@ -1162,7 +1119,6 @@ function CPU (memory) {
         // this.set8BitReg(r, ((value & 0b11110000) >> 4) | ((value & 0b00001111) << 4));
         if (this.get8BitReg(r) === 0) this.F = this.F | 0b10000000;
         this.m = 2;
-        this.t = 8;
     }
 
     // 0xCB36
@@ -1174,7 +1130,6 @@ function CPU (memory) {
         memory.setByte(this.get16BitReg(2), value);
         if (value === 0) this.F = this.F | 0b10000000;
         this.m = 4;
-        this.t = 16;
     }
 
     // 0xCB28 0xCB29 0xCB2A 0xCB2B 0xCB2C 0xCB2D 0xCB2F
@@ -1186,7 +1141,6 @@ function CPU (memory) {
         this.set8BitReg(r, (this.get8BitReg(r) >> 1) | (this.get8BitReg(r) & 0b10000000));
         if (this.get8BitReg(r) === 0) this.F = this.F | 0b10000000;
         this.m = 2;
-        this.t = 8;
     }
 
     // 0xCB2E
@@ -1199,7 +1153,6 @@ function CPU (memory) {
         memory.setByte(this.get16BitReg(2), value);
         if (value === 0) this.F = this.F | 0b10000000;
         this.m = 4;
-        this.t = 16;
     }
 
     // 0xCB38 0xCB39 0xCB3A 0xCB3B 0xCB3C 0xCB3D 0xCB3F
@@ -1211,7 +1164,6 @@ function CPU (memory) {
         this.set8BitReg(r, this.get8BitReg(r) >> 1);
         if (this.get8BitReg(r) === 0) this.F = this.F | 0b10000000;
         this.m = 2;
-        this.t = 8;
     }
 
     // 0xCB3E
@@ -1224,7 +1176,6 @@ function CPU (memory) {
         memory.setByte(this.get16BitReg(2), value);
         if (value === 0) this.F = this.F | 0b10000000;
         this.m = 4;
-        this.t = 16;
     }
 
     // Single-bit Operation instructions
@@ -1247,7 +1198,6 @@ function CPU (memory) {
 
         if ((this.get8BitReg(r) & (1 << n)) === 0) this.F = this.F | 0b10000000;
         this.m = 2;
-        this.t = 8;
     }
 
     // 0xCB46 0xCB4E 0xCB56 0xCB5E 0xCB66 0xCB6E 0xCB76 0xCB7E
@@ -1260,7 +1210,6 @@ function CPU (memory) {
 
         if ((value & (1 << n)) === 0) this.F = this.F | 0b10000000;
         this.m = 3;
-        this.t = 12;
     }
 
     // 0xCBC0 0xCBC1 0xCBC2 0xCBC3 0xCBC4 0xCBC5 0xCBC7
@@ -1277,7 +1226,6 @@ function CPU (memory) {
         const r = op & 0b00000111;
         this.set8BitReg(r, this.get8BitReg(r) | (1 << n));
         this.m = 2;
-        this.t = 8;
     }
 
     // 0xCBC6 0xCBCE 0xCBD6 0xCBDE 0xCBE6 0xCBEE 0xCBF6 0xCBFE
@@ -1288,7 +1236,6 @@ function CPU (memory) {
         value = value | (1 << n);
         memory.setByte(this.get16BitReg(2), value);
         this.m = 4;
-        this.t = 16;
     }
 
     // 0xCB80 0xCB81 0xCB82 0xCB83 0xCB84 0xCB85 0xCB87
@@ -1305,7 +1252,6 @@ function CPU (memory) {
         const r = op & 0b00000111;
         this.set8BitReg(r, this.get8BitReg(r) & ~(1 << n));
         this.m = 2;
-        this.t = 8;
     }
 
     // 0xCB86 0xCB8E 0xCB96 0xCB9E 0xCBA6 0xCBAA 0xCBAE 0xCBB6 0xCBBE
@@ -1316,7 +1262,6 @@ function CPU (memory) {
         value = value & ~(1 << n);
         memory.setByte(this.get16BitReg(2), value);
         this.m = 4;
-        this.t = 16;
     }
 
     // CPU Control instructions
@@ -1328,7 +1273,6 @@ function CPU (memory) {
         this.F = this.F & 0b10010000;
         this.F = this.F ^ 0b00010001;
         this.m = 1;
-        this.t = 4;
     }
 
     // 0x37
@@ -1337,14 +1281,12 @@ function CPU (memory) {
         this.F = this.F & 0b10000000;
         this.F = this.F | 0b00010000;
         this.m = 1;
-        this.t = 4;
     }
 
     // 0x00
     // nop	00	4	––	no operation
     const nop = (op) => {
         this.m = 1;
-        this.t = 4;
     }
 
     // 0x76
@@ -1354,7 +1296,6 @@ function CPU (memory) {
         console.log("HALTED");
         // process.exit(0);
         this.m = 1;
-        this.t = 4;
     }
 
     // 0x1000 
@@ -1368,17 +1309,17 @@ function CPU (memory) {
     // 0xF3
     // di	F3	4	––	disable interrupts, IME=0
     const di = (op) => {
-        this.IME = false;
+        this.imeChangeOpCounter = 2;
+        this.newIME = false;
         this.m = 1;
-        this.t = 4;
     }
 
     // 0xFB
     // ei	FB	4	––	enable interrupts, IME=1
     const ei = (op) => {
-        this.IME = true;
+        this.imeChangeOpCounter = 2;
+        this.newIME = true;
         this.m = 1;
-        this.t = 4;
     }
 
     // Jump instructions
@@ -1390,7 +1331,6 @@ function CPU (memory) {
         const nn = memory.getWord(this.PC);
         this.PC = nn;
         this.m = 3;
-        this.t = 12;
     }
 
     // 0xE9
@@ -1398,7 +1338,6 @@ function CPU (memory) {
     const jpHL = (op) => {
         this.PC = this.get16BitReg(2);
         this.m = 1;
-        this.t = 4;
     }
 
     // 0xC2 0xD2 0xCA 0xDA
@@ -1409,23 +1348,18 @@ function CPU (memory) {
         if (op === 0xC2 && (this.F & 0b10000000) === 0) {
             this.PC = nn;
             this.m = 4;
-            this.t = 16;
         } else if (op === 0xCA && (this.F & 0b10000000) !== 0) {
             this.PC = nn;
             this.m = 4;
-            this.t = 16;
-        } else if (op === 0xE2 && (this.F & 0b00010000) === 0) {
+        } else if (op === 0xD2 && (this.F & 0b00010000) === 0) {
             this.PC = nn;
             this.m = 4;
-            this.t = 16;
-        } else if (op === 0xEA && (this.F & 0b00010000) !== 0) {
+        } else if (op === 0xDA && (this.F & 0b00010000) !== 0) {
             this.PC = nn;
             this.m = 4;
-            this.t = 16;
         } else {
             this.PC += 2;
             this.m = 3;
-            this.t = 12;
         }
 
         
@@ -1437,7 +1371,6 @@ function CPU (memory) {
         const dd = memory.getByte(this.PC++) << 24 >> 24;
         this.PC += dd;
         this.m = 3;
-        this.t = 12;
     }
 
     // 0x20 0x28 0x30 0x38
@@ -1448,23 +1381,18 @@ function CPU (memory) {
         if (op === 0x20 && (this.F & 0b10000000) === 0) {
             this.PC += dd;
             this.m = 3;
-            this.t = 12;
         } else if (op === 0x28 && (this.F & 0b10000000) !== 0) {
             this.PC += dd;
             this.m = 3;
-            this.t = 12;
         } else if (op === 0x30 && (this.F & 0b00010000) === 0) {
             this.PC += dd;
             this.m = 3;
-            this.t = 12;
         } else if (op === 0x38 && (this.F & 0b00010000) !== 0) {
             this.PC += dd;
             this.m = 3;
-            this.t = 12;
         } else {
             // this.PC++;
             this.m = 2;
-            this.t = 8;
         }
     }
 
@@ -1472,12 +1400,19 @@ function CPU (memory) {
     // call nn	CD nn nn	24	––	call to nn, SP=SP-2, (SP)=this.PC, this.PC=nn
     const call = (op) =>{
         const nn = memory.getWord(this.PC);
-        const SP = this.get16BitReg(3);
-        memory.setWord(SP - 2, this.PC + 2);
-        this.set16BitReg(3, SP - 2);
+        // const SP = this.get16BitReg(3);
+        // const newSP = SP - 2 < 0 ? 0xFFFF : SP - 2;
+
+        const retPC = this.PC + 2;
+
+        this.decSP();
+        memory.setByte(this.SP, retPC >> 8);
+        this.decSP();
+        memory.setByte(this.SP, retPC & 0xFF);
+
+        // this.set16BitReg(3, newSP);
         this.PC = nn;
         this.m = 5;
-        this.t = 20;
     }
 
     // 0xC4 0xCC 0xD4 0xDC
@@ -1494,7 +1429,6 @@ function CPU (memory) {
         } else {
             this.PC += 2;
             this.m = 3;
-            this.t = 12;
         }
     }
 
@@ -1503,10 +1437,10 @@ function CPU (memory) {
     const ret = (op) => {
         const SP = this.get16BitReg(3);
         const nn = memory.getWord(SP);
-        this.set16BitReg(3, SP + 2);
+        const newSP = SP + 2 > 0xFFFF ? 0 : SP + 2;
+        this.set16BitReg(3, newSP);
         this.PC = nn;
         this.m = 3;
-        this.t = 12;
     }
 
     // 0xC0 0xC8 0xD0 0xD8
@@ -1515,23 +1449,18 @@ function CPU (memory) {
         if (op === 0xC0 && (this.F & 0b10000000) === 0) {
             ret();
             // this.m = 3;
-            // this.t = 12;
         } else if (op === 0xC8 && (this.F & 0b10000000) !== 0) {
             ret();
             // this.m = 3;
-            // this.t = 20;
         } else if (op === 0xD0 && (this.F & 0b00010000) === 0) {
             ret();
             // this.m = 5;
-            // this.t = 20;
         } else if (op === 0xD8 && (this.F & 0b00010000) !== 0) {
             ret();
             // this.m = 5;
-            // this.t = 20;
         } else {
             // this.PC++;
             this.m = 1;
-            this.t = 4;
         }
     }
 
@@ -1541,17 +1470,29 @@ function CPU (memory) {
         ret();
         this.IME = true;
         this.m = 3;
-        this.t = 12;
     }
 
     // 0xC7 0xCF 0xD7 0xDF 0xE7 0xEF 0xF7 0xFF
     // rst n	xx	16	––	
     const rstn = (op) => {
-        const SP = this.get16BitReg(3);
 
-        memory.setWord(SP - 2, this.PC + 1);
-        
-        this.set16BitReg(3, SP - 2);
+
+//         Description:
+// //  Push present address onto stack.
+// //  Jump to address $0000 + n.
+// // Use with:
+// //  n = $00,$08,$10,$18,$20,$28,$30,$38
+
+        // const SP = this.get16BitReg(3);
+
+
+        // const newSP = SP - 2 < 0 ? 0xFFFF : SP - 2;
+        this.decSP();
+        memory.setByte(this.SP, this.PC >> 8);
+        // memory.setWord(newSP, this.PC - 1);
+        this.decSP();
+        memory.setByte(this.SP, this.PC & 0xFF);
+        // this.set16BitReg(3, newSP);
 
         if (op === 0xC7) {
             this.PC = 0x0000;
@@ -1572,7 +1513,6 @@ function CPU (memory) {
         }
 
         this.m = 3;
-        this.t = 12;
     }
 
     this.opcodesMap = {
@@ -2080,49 +2020,93 @@ function CPU (memory) {
 
     this.handleInterrupts = () => {
         this.m = 0;
-        this.t = 0;
         
         if (this.IME) {
-            const ie_flags = memory.getByte(0xFFFF);
-            const if_flags = memory.getByte(0xFF0F);
-
-            if (ie_flags & if_flags) {
+            if (memory.getByte(0xFFFF) & memory.getByte(0xFF0F)) {
                 this.IME = false;
                 this.m = 2;
-                this.t = 8;
 
-                if (if_flags & 0b00000001) { // V-Blank
-                    call(0x40);
+                // const SP = this.get16BitReg(3);
+                // const newSP = SP - 2 < 0 ? 0xFFFF : SP - 2;
+                this.decSP();
+                memory.setByte(this.SP, this.PC >> 8);
+                this.decSP();
+                memory.setByte(this.SP, this.PC & 0xFF);
+                // this.set16BitReg(3, newSP);
+
+                // const interrupts = [];
+                const ie_flags = memory.getByte(0xFFFF);
+                const if_flags = memory.getByte(0xFF0F);
+                
+                if ((if_flags & 0b00000001) && (ie_flags & 0b00000001)) { // V-Blank
+                    this.PC = 0x40;
                     memory.setByte(0xFF0F, if_flags & 0b11111110);
+                    this.m = 5;
                 } 
-                if (if_flags & 0b00000010) { // LCDC (see STAT)
-                    call(0x48);
+                
+                if ((if_flags & 0b00000010) && (ie_flags & 0b00000010)) { // LCDC (see STAT)
+                    this.PC = 0x48;
                     memory.setByte(0xFF0F, if_flags & 0b11111101);
+                    this.m = 5;
                 } 
-                 if (if_flags & 0b00000100) { // Timer Overflow
-                    call(0x50);
+                
+                if ((if_flags & 0b00000100) && (ie_flags & 0b00000100)) { // Timer Overflow
+                    this.PC = 0x50;
                     memory.setByte(0xFF0F, if_flags & 0b11111011);
+                    this.m = 5;
                 } 
-                 if (if_flags & 0b00001000) { // Serial I/O transfer complete
-                    call(0x58);
+                
+                if ((if_flags & 0b00001000) && (ie_flags & 0b00001000)) { // Serial I/O transfer complete
+                    this.PC = 0x58;
                     memory.setByte(0xFF0F, if_flags & 0b11110111);
+                    this.m = 5;
                 } 
-                 if (if_flags & 0b00010000) { // Transition from High to Low of Pin number P10-P13
-                    call(0x60);
+                
+                if ((if_flags & 0b00010000) && (ie_flags & 0b00010000)) { // Transition from High to Low of Pin number P10-P13
+                    this.PC = 0x60;
                     memory.setByte(0xFF0F, if_flags & 0b11101111);
+                    this.m = 5;
                 }
+
+                // if ((if_flags & ie_flags) == 0) {
+                //     this.PC = 0;
+                // }
+
+                // this.PC = interrupts[0];
+                
+                // interrupts.sort((a,b) => b - a);
+                
+                // interrupts.forEach(interrupt => {
+                    // if (interrupt != this.PC) {
+                        // const SP = this.get16BitReg(3);
+                        // memory.setWord(SP - 2, interrupt);
+                        // this.set16BitReg(3, SP - 2);
+                    // }
+                // });
 
             }
         }
 
-        return { m: this.m, t: this.t };
+        return this.m;
     }
 
-    const writeOp = (time) => {
-        fs.writeFileSync(`./dump_${time}`, `${this.opcodesMap[this.recentOp].name} ${this.recentPC.toString(16)}\n`, { flag: 'a+' });
+    const dumpOp = () => {
+        fs.writeFileSync(
+            `./dump_${this.timestamp}`,
+            `${this.opcodesMap[this.recentOp].name} ${this.recentPC.toString(16)}\n`,
+            { flag: 'a+' }
+        );
     }
+
+    this.startDmaTransfer = (address) => {
+        this.dmaCycles = 160;
+        this.dmaAddress = address;
+    }
+    
     // 4194304 cycles per second
-    this.executeNext = (time) => {
+    this.fetchAndExecute = () => {
+        if (this.halted) return;
+
         if (this.PC === 0x0100) {
             memory.unloadBios();
             this.biosLoaded = 0;
@@ -2132,6 +2116,14 @@ function CPU (memory) {
         this.lastPC = this.recentPC;
 
         this.recentPC = this.PC;
+
+        if (this.dmaCycles > 0) {
+            const byte = (160 - this.dmaCycles);
+            const value = memory.getByte(this.dmaAddress + byte);
+            this.lastDmaValueWritten = value;
+            memory.setByte(0xFE00 + byte, value);
+            this.dmaCycles--;
+        }
         
         let op = memory.getByte(this.PC++);
         
@@ -2152,18 +2144,21 @@ function CPU (memory) {
             this.recentOp = op;
         }
 
-        writeOp(time);
+        if (this.imeChangeOpCounter > 0) {
+            this.imeChangeOpCounter--;
+            
+            if (this.imeChangeOpCounter === 0) {
+                this.IME = this.newIME;
+            }
+        }
         
-        this.clock.t += this.t;
-        this.clock.m += this.m;
-        return { t: this.t, m: this.m };
+        if (debugOpts.dump) {
+            dumpOp();
+        }
+        
+        this.clock.m = (this.clock.m + this.m) & Number.MAX_SAFE_INTEGER;
+        return this.m;
     }
-
-    this.lastPC = 0;
-    this.lastOp = 0;
-    this.recentPC = 0;
-    this.recentOp = 0;
-
 
 
     this.getState = () => {
@@ -2180,10 +2175,7 @@ function CPU (memory) {
             IME ${this.IME}
             BIOS ${this.biosLoaded}
         `;
-    }
-
-
-    
+    } 
 }
 
 // console.log(window)

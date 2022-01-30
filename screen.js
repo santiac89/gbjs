@@ -1,9 +1,9 @@
 // const logUpdate = require('log-update')
 
-require('native-canvas')
+// require('native-canvas')
 // Provides the current running canvas
 
-function Screen(memory, test) {
+function Screen(memory) {
     
     // Bit 7 - LCD Display Enable (0=Off, 1=On)
     // Bit 6 - Window Tile Map Display Select (0=9800-9BFF, 1=9C00-9FFF)
@@ -51,10 +51,7 @@ function Screen(memory, test) {
 
     for (let i = 0; i < SCREEN_HEIGHT; i++) {
         for (let j = 0; j < SCREEN_WIDTH; j++) {
-            if (!this.screenData[i]) {
-                this.screenData[i] = [];
-            }
-                
+            if (!this.screenData[i]) this.screenData[i] = [];
             this.screenData[i][j] = [0,0,0];
         }
     }
@@ -69,19 +66,18 @@ function Screen(memory, test) {
         }
     }
 
-    this.render = () => {
-        canvas.getContext('2d').fillStyle = 'white'
-        canvas.getContext('2d').fillRect(0, 0, canvas.width, canvas.height);
-        const pixelWidth = canvas.width / 160;
-        const pixelHeight = canvas.height / 144;
-        const t = memory.getByte(LY_REG);
-        for (let line = 0; line < 144; line++) {
-            let nop = 0;
-            for (let pixel = 0; pixel < 160; pixel++) {
-                canvas.getContext('2d').fillStyle = `rgb(${this.screenData[line][pixel][0]}, ${this.screenData[line][pixel][1]}, ${this.screenData[line][pixel][2]})`;
-                canvas.getContext('2d').fillRect(pixel * pixelWidth, line * pixelHeight, pixelWidth, pixelHeight);
-            }
-        }
+    this.render = (device) => {
+        // canvas.getContext('2d').fillStyle = 'white'
+        // canvas.getContext('2d').fillRect(0, 0, canvas.width, canvas.height);
+        // const pixelWidth = canvas.width / 160;
+        // const pixelHeight = canvas.height / 144;
+        
+        // for (let line = 0; line < 144; line++) {
+        //     for (let pixel = 0; pixel < 160; pixel++) {
+        //         canvas.getContext('2d').fillStyle = `rgb(${this.screenData[line][pixel][0]}, ${this.screenData[line][pixel][1]}, ${this.screenData[line][pixel][2]})`;
+        //         canvas.getContext('2d').fillRect(pixel * pixelWidth, line * pixelHeight, pixelWidth, pixelHeight);
+        //     }
+        // }
     }
 
     this.getColor = (colorId, paletteAddress) => {
@@ -144,49 +140,33 @@ function Screen(memory, test) {
            // its easier to read in from right to left as pixel 0 is
            // bit 7 in the colour data, pixel 1 is bit 6 etc...
             for (let tilePixel = 7; tilePixel >= 0; tilePixel--) {
-                let colourBit = tilePixel ;
+                let colorBit = tilePixel ;
              
                 // read the sprite in backwards for the x axis
                 if (xFlip) {
-                    colourBit -= 7 ;
-                    colourBit *= -1 ;
+                    colorBit -= 7 ;
+                    colorBit *= -1 ;
                 }
 
                 // the rest is the same as for tiles
-                const bit1 = (tileData1 & (1 << colourBit)) === 0 ? 0 : 1;
-                const bit2 = (tileData2 & (1 << colourBit)) === 0 ? 0 : 1;
-                const colourNum = (bit2 << 1) | bit1;
+                const bit1 = (tileData1 & (1 << colorBit)) === 0 ? 0 : 1;
+                const bit2 = (tileData2 & (1 << colorBit)) === 0 ? 0 : 1;
+                const colorId = (bit2 << 1) | bit1;
 
-                const colourAddress = attributes & 0b10000 ? SPRITE_PALETTE_REG_2 : SPRITE_PALETTE_REG_1;
-                const colour = this.getColor(colourNum, colourAddress);
+                const paletteAddress = attributes & 0b10000 ? SPRITE_PALETTE_REG_2 : SPRITE_PALETTE_REG_1;
+                const color = this.getColor(colorId, paletteAddress);
 
                 // white is transparent for sprites.
-                if (colour === 0)
-                    continue ;
+                if (color === 0) continue;
 
-                let red = 0;
-                let green = 0;
-                let blue = 0;
-
-                switch(colour) {
-                    case 0: red =255;green=255;blue=255;break ;
-                    case 1:red =0xCC;green=0xCC ;blue=0xCC;break ;
-                    case 2:red=0x77;green=0x77;blue=0x77;break ;
-                }
-
-                let xPix = 0 - tilePixel ;
-                xPix += 7 ;
-
-                let pixel = positionX + xPix ;
+                const pixel = positionX - tilePixel + 7;
 
                 // sanity check
                 if ((scanline<0)||(scanline>143)||(pixel<0)||(pixel>159)) {
                     continue ;
                 }
 
-                this.screenData[line][pixel][0] = red;
-                this.screenData[line][pixel][1] = green;
-                this.screenData[line][pixel][2] = blue;
+                this.screenData[line][pixel] = color;
             }
         }
     }
@@ -208,7 +188,6 @@ function Screen(memory, test) {
 
         // which tile data are we using?
         // IMPORTANT: This memory region TILE_DATA_REG_2 uses signed bytes as tile identifiers
-
         const tileDataReg = memory.getByte(LCDC_REG) & 0b00010000 ? TILE_DATA_REG_1 : TILE_DATA_REG_2;
         const isSigned = (memory.getByte(LCDC_REG) & 0b00010000) === 0;
         
@@ -229,8 +208,6 @@ function Screen(memory, test) {
 
         // time to start drawing the 160 horizontal pixels for this scanline
         for (let pixel = 0 ; pixel < 160; pixel++) {
-            let red = 0, green = 0, blue = 0;
-
             let positionX = pixel + scrollX;
 
             if (usingWindow && pixel >= windowX) {
@@ -253,20 +230,20 @@ function Screen(memory, test) {
             
             // Pixel 0 in the tile is it 7 of data 1 and data2.
             // Pixel 1 is bit 6 etc..
-            const colourBit = ((positionX % 8) - 7) * -1; // Reverse order
+            const colorBit = ((positionX % 8) - 7) * -1; // Reverse order
 
             // combine data 2 and data 1 to get the colour id for this pixel in the tile
-            const bit1 = (tileData1 & (1 << colourBit)) === 0 ? 0 : 1;
-            const bit2 = (tileData2 & (1 << colourBit)) === 0 ? 0 : 1;
-            const colourNum = (bit2 << 1) | bit1;
+            const bit1 = (tileData1 & (1 << colorBit)) === 0 ? 0 : 1;
+            const bit2 = (tileData2 & (1 << colorBit)) === 0 ? 0 : 1;
+            const colorId = (bit2 << 1) | bit1;
 
-            const color = this.getColor(colourNum, BACKGROUND_PALETTE_REG);
+            const color = this.getColor(colorId, BACKGROUND_PALETTE_REG);
 
-            switch(color) {
-                case 0: red = 255; green = 255 ; blue = 255; break ;
-                case 1: red = 0xCC; green = 0xCC ; blue = 0xCC; break ;
-                case 2: red = 0x77; green = 0x77 ; blue = 0x77; break ;
-            }
+            // switch(color) {
+            //     case 0: red = 255; green = 255 ; blue = 255; break ;
+            //     case 1: red = 0xCC; green = 0xCC ; blue = 0xCC; break ;
+            //     case 2: red = 0x77; green = 0x77 ; blue = 0x77; break ;
+            // }
 
             
             // safety check to make sure what im about to set is int the 160x144 bounds
@@ -276,9 +253,7 @@ function Screen(memory, test) {
                 continue ;
             }
 
-            this.screenData[line][pixel][0] = red;
-            this.screenData[line][pixel][1] = green;
-            this.screenData[line][pixel][2] = blue;
+            this.screenData[line][pixel] = color;
         }
     }
 

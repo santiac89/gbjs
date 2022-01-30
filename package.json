@@ -1,4 +1,7 @@
 {
+  "scripts": {
+    "test": "jest"
+  },
   "dependencies": {
     "jest": "^27.4.7",
     "log-update": "^4.0.0",

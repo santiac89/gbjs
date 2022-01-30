@@ -1,3 +1,6 @@
+const ROM = require("./rom");
+const MBC1 = require("./mbc1");
+
 // GB BIOS
 const BOOT_ROM = [
     0x31, 0xFE, 0xFF, 0xAF, 0x21, 0xFF, 0x9F, 0x32, 0xCB, 0x7C, 0x20, 0xFB, 0x21, 0x26, 0xFF, 0x0E,
@@ -20,20 +23,34 @@ const BOOT_ROM = [
 
 
 function Memory () {
-    this.bios = 1;
-    this.cartridgeRom = [];
+    this.lastDmaValueWritten = 0;
+    this.bootRomPresent = true;
+    this.cartridgeMemory = [];
+    
+    this.bankControllers = {
+        0: ROM,
+        1: MBC1,
+        2: MBC1,
+        3: MBC1,
+    }
+
+    this.bankController = this.bankControllers[0];
+    this.bootRoom = [...BOOT_ROM];
     
     // 0000	3FFF	16 KiB ROM bank 00	From cartridge, usually a fixed bank
-    this.bank0 = [...BOOT_ROM];
-    
     // 4000	7FFF	16 KiB ROM Bank 01~NN	From cartridge, switchable bank via mapper (if any)
-    this.bankN = Array(0X7FFF - 0x4000).fill(0);
+    // this.bankN = Array(0X7FFF - 0x4000).fill(0);
     
     // 8000	9FFF	8 KiB Video RAM (VRAM)	In CGB mode, switchable bank 0/1
     this.vram = Array(0X9FFF - 0x8000).fill(0);
 
     // A000	BFFF	8 KiB External RAM	From cartridge, switchable bank if any
-    this.eram = Array(0XBFFF - 0xA000).fill(0);
+    this.eram = [
+        Array(0XBFFF - 0xA000).fill(0),
+        Array(0XBFFF - 0xA000).fill(0),
+        Array(0XBFFF - 0xA000).fill(0),
+        Array(0XBFFF - 0xA000).fill(0),
+    ];
 
     // C000	CFFF	4 KiB Work RAM (WRAM)	
     this.wram = Array(0xCFFF - 0xC000).fill(0);
@@ -58,6 +75,10 @@ function Memory () {
 
     // FFFF	FFFF	Interrupt Enable register (IE)
     this.ie = [0x00];
+
+    this.setCpu = function (cpu) {
+        this.cpu = cpu;
+    }
 
     this.getMemoryRegion = (address) => {
         if (0x0000 <= address && address <= 0x3FFF) {
@@ -91,29 +112,54 @@ function Memory () {
 
     this.getByte = (address) => {
         const region = this.getMemoryRegion(address);
-        return this[region.name][address - region.base] 
-            ? this[region.name][address - region.base] :
-            0;
+
+        if (address >= 0x0000 && address <= 0x7FFF) { // Read from ROM bank
+            if (this.bootRomPresent && address < 0x0100) {
+                return this.bootRoom[address];
+            } else {
+                return this.bankController.readByte(address);
+            }
+        } else if (address >= 0xA000 && address < 0xC000) {
+            const ramBank = this.bankController.getRAMBankNumber();
+            return this.eram[ramBank][address - region.base];
+        } else {
+            return this[region.name][address - region.base] 
+                ? this[region.name][address - region.base] :
+                0;
+        }
+        
     };
+
+
+    // 0000-1FFF	Enable external RAM	4 bits wide; value of 0x0A enables RAM, any other value disables
+    // 2000-3FFF	ROM bank (low 5 bits)	Switch between banks 1-31 (value 0 is seen as 1)
+    // 4000-5FFF	ROM bank (high 2 bits) RAM bank	
+                                        // ROM mode: switch ROM bank "set" {1-31}-{97-127}
+                                        // RAM mode: switch RAM bank 0-3
+    // 6000-7FFF	Mode	   0: ROM mode (no RAM banks, up to 2MB ROM)
+                            // 1: RAM mode (4 RAM banks, up to 512kB ROM)
+
 
     this.setByte = (address, value) => {
         const region = this.getMemoryRegion(address);
         
-        if (address === 0xFF44) { // LY trap
+        if (address >= 0x0000 && address < 0x8000) {
+            this.bankController.setByte(address, value);
+        } else if (address >= 0xA000 && address < 0xC000) {
+            const ramBank = this.bankController.getRAMBankNumber();
+            this.eram[ramBank][address - region.base] = value & 0xFF;
+        } else if (address === 0xFF44) { // LY trap
             this[region.name][address - region.base] = 0;
         } else if (address === 0xFF04) { // DIV trap
             this[region.name][address - region.base] = 0;
             this[region.name][address - region.base - 1] = 0;
-            if (this.timer) this.timer.setDivReset()
         } else if (address === 0xFF46) { // DMA Transfer
             const dmaAddress = value << 8 ; // source address is data * 100
-            
-            for (let i = 0 ; i < 0xA0; i++) {
-                this.setByte(0xFE00 + i, this.getByte(dmaAddress + i));
-            }
+            this.cpu.startDmaTransfer(dmaAddress);
+            this[region.name][address - region.base] = value & 0xFF;
         } else if (address === 0xFF05) { // TIMA trap
             this.timer.setTima(value);
-        } else if (address === 0xFF06) { // TIMA trap
+        } else if (address === 0xFF06) { // TMA trap
             this.timer.setTma(value);
         } else {
             this[region.name][address - region.base] = value & 0xFF;
@@ -134,21 +180,13 @@ function Memory () {
     };
 
     this.loadROM = (romBytes) => {
-        romBytes.forEach((value, index) => { 
-            this.cartridgeRom[index] = value;
-            
-            if (index >= 0x0100 && index <= 0x7FFF) {
-                this.setByte(index, value);
-            }
-        });
+        const cartridgeType = romBytes[0x0147];
+        const controller = this.bankControllers[cartridgeType];
+        this.bankController = controller ? new controller(romBytes) : new ROM(romBytes);
     }
 
     this.unloadBios = () => {
-        this.cartridgeRom.forEach((value, index) => {
-
-            this.setByte(index, value);
-            if (index === 0x0100) return;
-        });
+        this.bootRomPresent = false;
     }
 
     this.setTimer = (timer) => {

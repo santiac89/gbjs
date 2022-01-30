@@ -1,5 +1,3 @@
-const fs = require('fs')
-
 const Timer = function(memory, time) {
     const TIMA_REG = 0xFF05;
     const DIV_REG = 0xFF04;
@@ -10,8 +8,6 @@ const Timer = function(memory, time) {
 
     this.currentFrequency = 0;
     this.clock = 0;
-    this.dividerClock = 64;
-    this.divReset = false;
 
     this.getState = () => {
         return `
@@ -28,7 +24,6 @@ const Timer = function(memory, time) {
 
     this.increaseTimaAndInterrupt = (reason) => {
         memory.io[TIMA_REG - 0xFF00] = (memory.getByte(TIMA_REG) + 1) & 0xFF;
-        fs.writeFileSync(`./dump_${time}`, `${reason} TIMA++ = ${memory.io[TIMA_REG - 0xFF00].toString(16)}\n`, { flag: 'a+' });
 
         if (memory.io[TIMA_REG - 0xFF00] === 0) {
             this.timaOverflowed = true;
@@ -71,10 +66,8 @@ const Timer = function(memory, time) {
 
     this.setTima = (value) => {
         if (this.timaOverflowed && this.timaReloadClock > 0) {
-            fs.writeFileSync(`./dump_${time}`, `TIMA = TMA (${memory.getByte(TMA_REG).toString(16)})\n`, { flag: 'a+' })
             memory.io[TIMA_REG - 0xFF00] = memory.getByte(TMA_REG);
         } else {
-            fs.writeFileSync(`./dump_${time}`, `TIMA = ${value.toString(16)}\n`, { flag: 'a+' })
             memory.io[TIMA_REG - 0xFF00] = (value & 0xFF);
         }
     }
@@ -87,12 +80,8 @@ const Timer = function(memory, time) {
         }
     }
 
-    this.setDivReset = () => {
-        this.divReset = true;
-    }
-
-    this.step = (t = 1) => {
-        // this.clock += t;
+    this.step = (t) => {
+        this.clock += t;
         
         this.timerEnabled = this.timerIsEnabled();
 
@@ -107,21 +96,17 @@ const Timer = function(memory, time) {
 
                 if (this.timaReloadClock <= 0) {
                     memory.io[TIMA_REG - 0xFF00] = memory.getByte(TMA_REG) & 0xFF;
-                    memory.setByte(IF_REG, memory.getByte(IF_REG) | 0b10);
+                    memory.setByte(IF_REG, memory.getByte(IF_REG) | 0b100);
                     this.timaOverflowed = false;
                 }
             }
 
-            // We check the frequency bit to see if it overflows
+            // We check the frequency bit to see if its gonna overflow
             const frequencyBitState1 = (memory.getWord(COUNTER_REG) & (1 << this.getFrequencyCheckBit())) === 0 ? 0 : 1;
 
-            // if (this.divReset) { // Skip if last operation reseted div
-                // this.divReset = false;
-            // } else {
-                const counter = (memory.getWord(COUNTER_REG) + 1) & 0xFFFF;
-                memory.io[COUNTER_REG - 0xFF00] = counter & 0xFF;
-                memory.io[DIV_REG - 0xFF00] = counter >> 8;
-            // }
+            const counter = (memory.getWord(COUNTER_REG) + 1) & 0xFFFF;
+            memory.io[COUNTER_REG - 0xFF00] = counter & 0xFF;
+            memory.io[DIV_REG - 0xFF00] = counter >> 8;
 
             const frequencyBitState2 = (memory.getWord(COUNTER_REG) & (1 << this.getFrequencyCheckBit())) === 0 ? 0 : 1;
             

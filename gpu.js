@@ -100,7 +100,6 @@ function GPU (memory, screen) {
     }
     
     this.step = (t) => {
-
         this.setStatus();
 
         if (!this.isLCDEnabled()) return;
