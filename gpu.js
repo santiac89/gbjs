@@ -45,6 +45,14 @@ function GPU (memory, screen) {
         // 0	BG and Window enable/priority	0=Off, 1=On
     }
 
+    this.canAccessVRAM = () => {
+        return (memory.io[STAT_REG - 0xFF00] & 0b00000011) !== 3;
+    }
+
+    this.canAccessOAM = () => {
+        return (memory.io[STAT_REG - 0xFF00] & 0b00000011) <= 1;
+    }
+
     this.setStatus = () => {
         if (!this.isLCDEnabled()) {
             // set the mode to 1 during lcd disabled and reset scanline

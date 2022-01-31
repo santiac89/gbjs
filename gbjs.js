@@ -24,6 +24,7 @@ function GBJS(outputDevice = new CanvasOutputDevice(), debugOpts = { dump: false
     memory.setTimer(timer);
     memory.initialize();
     memory.setCpu(cpu);
+    memory.setGpu(gpu);
     
     this.loadRom = (romPath) => {
         const romBuffer = fs.readFileSync(romPath);

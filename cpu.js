@@ -18,7 +18,7 @@ function CPU (memory, debugOpts) {
     this.IME = true;
     this.dmaCycles = 0;
     this.lastDmaValueWritten = 0;
-    this.imeChangeOpCounter = 0;
+    this.imeChangeOpCounters = [];
 
     this.timestamp = Date.now();
     this.lastPC = 0;
@@ -1309,16 +1309,40 @@ function CPU (memory, debugOpts) {
     // 0xF3
     // di	F3	4	––	disable interrupts, IME=0
     const di = (op) => {
-        this.imeChangeOpCounter = 2;
-        this.newIME = false;
+        // if (this.imeChangeOpCounter === 0) {
+
+        if (
+            this.imeChangeOpCounters.length > 0 
+            && this.imeChangeOpCounters[this.imeChangeOpCounters.length - 1][0] === 1
+            && this.imeChangeOpCounters[this.imeChangeOpCounters.length - 1][1] === true
+        ) {
+            this.imeChangeOpCounters[this.imeChangeOpCounters.length - 1] = [2, false];
+        } else {
+            this.imeChangeOpCounters.push([2, false]);
+        }
+            // this.newIME = false;
+        // } 
+
+        // }
+
         this.m = 1;
     }
 
     // 0xFB
     // ei	FB	4	––	enable interrupts, IME=1
     const ei = (op) => {
-        this.imeChangeOpCounter = 2;
-        this.newIME = true;
+
+        // If this call is a follow to an DI then we shoudl cancel the EI
+        if (
+            this.imeChangeOpCounters.length > 0 
+            && this.imeChangeOpCounters[this.imeChangeOpCounters.length - 1][0] === 1
+            && this.imeChangeOpCounters[this.imeChangeOpCounters.length - 1][1] === false
+        ) {
+            this.imeChangeOpCounters[this.imeChangeOpCounters.length - 1] = [2, true];
+        } else {
+            this.imeChangeOpCounters.push([2, true]);
+        }
+
         this.m = 1;
     }
 
@@ -2144,14 +2168,21 @@ function CPU (memory, debugOpts) {
             this.recentOp = op;
         }
 
-        if (this.imeChangeOpCounter > 0) {
-            this.imeChangeOpCounter--;
-            
-            if (this.imeChangeOpCounter === 0) {
-                this.IME = this.newIME;
+        // Maybe we can do it with just 1 counter
+        // Handle EI/DI requests, should change IME after the next instruction from DI/EI was executed
+        // In case of a sequence of EI/DI calls we should change the IME delayed
+        for (let i = 0; i < this.imeChangeOpCounters.length; i++) {
+            this.imeChangeOpCounters[i][0]--;
+
+            if (this.imeChangeOpCounters[i][0] === 0) {
+                this.IME = this.imeChangeOpCounters[i][1];
             }
         }
-        
+
+        if (this.imeChangeOpCounters.length > 0 && this.imeChangeOpCounters[0][0] === 0) {
+            this.imeChangeOpCounters.shift();
+        }
+
         if (debugOpts.dump) {
             dumpOp();
         }

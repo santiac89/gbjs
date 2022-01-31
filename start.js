@@ -4,9 +4,9 @@ const GBJS = require('./gbjs.js');
 
 const canvasOutput = new CanvasOutputDevice();
 
-const gbjs = new GBJS(canvasOutput, { dump: true, testCallback: () => {} });
+const gbjs = new GBJS(canvasOutput, { dump: false, testCallback: () => {} });
 
-gbjs.loadRom('./test_roms/acceptance/pop_timing.gb');
+gbjs.loadRom('./tetris.gb');
 // gbjs.loadRom('./tetris.gb');
 
 const next = () => {

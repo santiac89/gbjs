@@ -80,6 +80,14 @@ function Memory () {
         this.cpu = cpu;
     }
 
+    this.setTimer = (timer) => {
+        this.timer = timer;
+    }
+
+    this.setGpu = (gpu) => {
+        this.gpu = gpu;
+    }
+
     this.getMemoryRegion = (address) => {
         if (0x0000 <= address && address <= 0x3FFF) {
             return { name: "bank0", base: 0x0000, size: 0x4000 };
@@ -122,12 +130,15 @@ function Memory () {
         } else if (address >= 0xA000 && address < 0xC000) {
             const ramBank = this.bankController.getRAMBankNumber();
             return this.eram[ramBank][address - region.base];
-        } else {
-            return this[region.name][address - region.base] 
-                ? this[region.name][address - region.base] :
-                0;
+        } else if (address >= 0x8000 && address < 0xA000) {
+            if (!this.gpu.canAccessVRAM()) return 0xFF;
+        } else if (address >= 0xFE00 && address < 0xFEA0) {
+            if (!this.gpu.canAccessOAM()) return 0xFF;
         }
-        
+
+        return this[region.name][address - region.base] 
+            ? this[region.name][address - region.base] :
+            0;
     };
 
 
@@ -145,28 +156,39 @@ function Memory () {
         
         if (address >= 0x0000 && address < 0x8000) {
             this.bankController.setByte(address, value);
+            return;
+        } else if (address >= 0x8000 && address < 0xA000) {
+            if (!this.gpu.canAccessVRAM()) return;
         } else if (address >= 0xA000 && address < 0xC000) {
             const ramBank = this.bankController.getRAMBankNumber();
             this.eram[ramBank][address - region.base] = value & 0xFF;
+            return;
+        } else if (address >= 0xFE00 && address < 0xFEA0) {
+            if (!this.gpu.canAccessOAM()) return;
         } else if (address === 0xFF44) { // LY trap
             this[region.name][address - region.base] = 0;
+            return;
         } else if (address === 0xFF04) { // DIV trap
             this[region.name][address - region.base] = 0;
             this[region.name][address - region.base - 1] = 0;
+            return;
         } else if (address === 0xFF46) { // DMA Transfer
             const dmaAddress = value << 8 ; // source address is data * 100
             this.cpu.startDmaTransfer(dmaAddress);
             this[region.name][address - region.base] = value & 0xFF;
+            return;
         } else if (address === 0xFF05) { // TIMA trap
             this.timer.setTima(value);
+            return;
         } else if (address === 0xFF06) { // TMA trap
             this.timer.setTma(value);
-        } else {
-            this[region.name][address - region.base] = value & 0xFF;
+            return;
+        } 
 
-            if (region.name === 'echo') {
-                this.setByte(address - 0x2000, value & 0xFF);
-            }
+        this[region.name][address - region.base] = value & 0xFF;
+
+        if (region.name === 'echo') {
+            this.setByte(address - 0x2000, value & 0xFF);
         }
     };
 
@@ -189,9 +211,7 @@ function Memory () {
         this.bootRomPresent = false;
     }
 
-    this.setTimer = (timer) => {
-        this.timer = timer;
-    }
+    
 
     // Stack Pointer=$FFFE
     
