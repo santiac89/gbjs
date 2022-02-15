@@ -1,6 +1,6 @@
 const ROM = require("./rom");
 const MBC1 = require("./mbc1");
-
+const fs = require('fs')
 // GB BIOS
 const BOOT_ROM = [
     0x31, 0xFE, 0xFF, 0xAF, 0x21, 0xFF, 0x9F, 0x32, 0xCB, 0x7C, 0x20, 0xFB, 0x21, 0x26, 0xFF, 0x0E,
@@ -22,11 +22,12 @@ const BOOT_ROM = [
   ];
 
 
-function Memory () {
-    this.lastDmaValueWritten = 0;
+function Memory (debugOpts) {
+    // this.lastDmaValueWritten = 0;
+    this.dmaCycles = null;
     this.bootRomPresent = true;
     this.cartridgeMemory = [];
-    
+    this.timestamp = debugOpts.timestamp;
     this.bankControllers = {
         0: ROM,
         1: MBC1,
@@ -76,6 +77,14 @@ function Memory () {
     // FFFF	FFFF	Interrupt Enable register (IE)
     this.ie = [0x00];
 
+    const dumpDebug = (text) => {
+        fs.writeFileSync(
+            `./dump_${this.timestamp}`,
+            `${text}\n`,
+            { flag: 'a+' }
+        );
+    }
+
     this.setCpu = function (cpu) {
         this.cpu = cpu;
     }
@@ -84,8 +93,8 @@ function Memory () {
         this.timer = timer;
     }
 
-    this.setGpu = (gpu) => {
-        this.gpu = gpu;
+    this.setPpu = (ppu) => {
+        this.ppu = ppu;
     }
 
     this.getMemoryRegion = (address) => {
@@ -118,8 +127,84 @@ function Memory () {
         throw new Error(`Invalid memory region 0x${address.toString(16)}`);
     };
 
-    this.getByte = (address) => {
+    this.translate = (address) => {
+        if (0x0000 <= address && address <= 0x3FFF) {
+            return { name: "bank0", base: 0x0000, size: 0x4000 };
+        } else if (0x4000 <= address && address <= 0x7FFF) {
+            return { name: "bankN", base: 0x4000 , size: 0x4000 };
+        } else if (0x8000 <= address && address <= 0x9FFF) {
+            return {name : "vram", base: 0x8000 , size: 0x2000 };
+        } else if (0xA000 <= address && address <= 0xBFFF) {
+            return { name: "eram", base: 0xA000, size: 0x2000 };
+        } else if (0xC000 <= address && address <= 0xCFFF) {
+            return { name: "wram", base: 0xC000, size: 0x2000 };
+        } else if (0xD000 <= address && address <= 0xDFFF) {
+            return { name: "wramN", base: 0xD000, size: 0x2000 };
+        } else if (0xE000 <= address && address <= 0xFDFF) {
+            return { name: "echo", base: 0xE000, size: 0x2000 };
+        } else if (0xFE00 <= address && address <= 0xFE9F) {
+            return { name: "oam", base: 0xFE00, size: 0xA0 };
+        } else if (0xFEA0 <= address && address <= 0xFEFF) {
+            return { name: "not_usable", base: 0xFEA0, size: 0x60 };
+        } else if (0xFF00 <= address && address <= 0xFF7F) {
+            return { name: "io", base: 0xFF00, size: 0x80 };
+        } else if (0xFF80 <= address && address <= 0xFFFE) {
+            return { name: "hram", base: 0xFF80, size: 0x7E };
+        } else if (0xFFFF <= address && address <= 0xFFFF) {
+            return { name: "ie", base: 0xFFFF, size: 0x1 };
+        }
+
+        throw new Error(`Invalid memory region 0x${address.toString(16)}`);
+    };
+
+    this.startDmaTransfer = (address) => {
+        this.dmaCycles = 160; // M-Cycles
+        this.dmaDelay = 2; // M-Cycles
+        // this.dmaRunning = true;
+        this.sourceDmaAddress = address;
+    }
+
+    this.step = (t) => {
+        
+        for (let i = 0; i < (t / 4); i++) {
+            if (this.dmaDelay > 0) {
+                this.dmaDelay--;
+
+                if (this.dmaDelay === 0) {
+                    this.dmaRunning = true;
+                }
+
+                continue;
+            }
+            
+            if (!this.dmaRunning) return;
+            
+            const byte = (160 - this.dmaCycles);
+            const region = this.getMemoryRegion(this.sourceDmaAddress + byte);
+            this.currentDmaAddress = this.sourceDmaAddress + byte;
+            
+            if (region.name === "bankN" || region.name === "bank0") {
+                this.oam[byte] = this.bankController.readByte(this.sourceDmaAddress + byte);
+            } else {
+                this.oam[byte] = this[region.name][(this.sourceDmaAddress + byte) - region.base];
+            }
+                
+            this.dmaCycles--;
+
+            if (this.dmaCycles <= 0) {
+                this.dmaRunning = false;
+                break;
+            }
+        }
+    }
+
+    this.getByte = (address, fetch = false) => {
         const region = this.getMemoryRegion(address);
+
+        // Should not consider the first 2 DMA cycles
+        if (this.dmaRunning && region.name === 'oam') { // This should be better
+            return 0xFF;
+        }
 
         if (address >= 0x0000 && address <= 0x7FFF) { // Read from ROM bank
             if (this.bootRomPresent && address < 0x0100) {
@@ -131,9 +216,9 @@ function Memory () {
             const ramBank = this.bankController.getRAMBankNumber();
             return this.eram[ramBank][address - region.base];
         } else if (address >= 0x8000 && address < 0xA000) {
-            if (!this.gpu.canAccessVRAM()) return 0xFF;
+            if (!this.ppu.canAccessVRAM()) return 0xFF;
         } else if (address >= 0xFE00 && address < 0xFEA0) {
-            if (!this.gpu.canAccessOAM()) return 0xFF;
+            if (!this.ppu.canAccessOAM()) return 0xFF;
         }
 
         return this[region.name][address - region.base] 
@@ -154,17 +239,21 @@ function Memory () {
     this.setByte = (address, value) => {
         const region = this.getMemoryRegion(address);
         
+        if (this.dmaRunning && region !== "hram" && address !== 0xFF46) {
+            return;
+        }
+
         if (address >= 0x0000 && address < 0x8000) {
             this.bankController.setByte(address, value);
             return;
         } else if (address >= 0x8000 && address < 0xA000) {
-            if (!this.gpu.canAccessVRAM()) return;
+            if (!this.ppu.canAccessVRAM()) return;
         } else if (address >= 0xA000 && address < 0xC000) {
             const ramBank = this.bankController.getRAMBankNumber();
             this.eram[ramBank][address - region.base] = value & 0xFF;
             return;
         } else if (address >= 0xFE00 && address < 0xFEA0) {
-            if (!this.gpu.canAccessOAM()) return;
+            if (!this.ppu.canAccessOAM()) return;
         } else if (address === 0xFF44) { // LY trap
             this[region.name][address - region.base] = 0;
             return;
@@ -174,8 +263,8 @@ function Memory () {
             return;
         } else if (address === 0xFF46) { // DMA Transfer
             const dmaAddress = value << 8 ; // source address is data * 100
-            this.cpu.startDmaTransfer(dmaAddress);
             this[region.name][address - region.base] = value & 0xFF;
+            this.startDmaTransfer(dmaAddress);
             return;
         } else if (address === 0xFF05) { // TIMA trap
             this.timer.setTima(value);
@@ -210,8 +299,6 @@ function Memory () {
     this.unloadBios = () => {
         this.bootRomPresent = false;
     }
-
-    
 
     // Stack Pointer=$FFFE
     

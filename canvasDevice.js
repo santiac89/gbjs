@@ -10,13 +10,13 @@ function CanvasOutputDevice() {
     this.getRGBColor = (colorId) => {
         switch (colorId) {
             case 0:
-                return '#000000';
+                return '#FFFFFF';
             case 1:
-                return '#0000FF';
+                return '#cccccc';
             case 2:
-                return '#00FF00';
+                return '#777777';
             case 3:
-                return '#00FFFF';
+                return '#000000';
         }
     }
 

@@ -1,6 +1,6 @@
-const fs = require('fs');
+const fs = require('fs')
 
-const Timer = function(memory, debugOpts) {
+const Timer = function(memory, time) {
     const TIMA_REG = 0xFF05;
     const DIV_REG = 0xFF04;
     const COUNTER_REG = 0xFF03;
@@ -10,6 +10,10 @@ const Timer = function(memory, debugOpts) {
 
     this.currentFrequency = 0;
     this.clock = 0;
+    this.dividerClock = 64;
+    this.divReset = false;
+    this.timerOverflowed = false;
+    this.timaReloadClock = 0;
 
     this.getState = () => {
         return `
@@ -21,23 +25,21 @@ const Timer = function(memory, debugOpts) {
     }
 
     this.timerIsEnabled = () => {
-       return (memory.io[TAC_REG - 0xFF00] & 0b100) > 0;
+       return (memory.getByte(TAC_REG) & 0b100) > 0;
     }
 
     this.increaseTimaAndInterrupt = (reason) => {
-        memory.io[TIMA_REG - 0xFF00] = (memory.io[TIMA_REG - 0xFF00] + 1) & 0xFF;
+        memory.io[TIMA_REG - 0xFF00] = (memory.getByte(TIMA_REG) + 1) & 0xFF;
+        // fs.writeFileSync(`./dump_${time}`, `${reason} TIMA++ = ${memory.io[TIMA_REG - 0xFF00].toString(16)}\n`, { flag: 'a+' });
 
-        dumpDebug('TIMA Increase: ' + reason);
-        
         if (memory.io[TIMA_REG - 0xFF00] === 0) {
-            dumpDebug('TIMA Overflow');
             this.timaOverflowed = true;
             this.timaReloadClock = 4;
         }
     }
 
     this.getFrequencyCheckBit = () => {
-        const freq = memory.io[TAC_REG - 0xFF00] & 0b11;
+        const freq = memory.getByte(TAC_REG) & 0b11;
 
         if (freq === 0) { // 00: 4096Hz
             return 9;
@@ -52,7 +54,7 @@ const Timer = function(memory, debugOpts) {
 
 
     this.checkClockFrequencyChange = () => {
-        const lastFrequency = memory.io[TAC_REG - 0xFF00] & 0b11;
+        const lastFrequency = memory.getByte(TAC_REG) & 0b11;
 
         if (lastFrequency != this.currentFrequency) {
             memory.io[COUNTER_REG - 0xFF00] = 0;
@@ -69,20 +71,12 @@ const Timer = function(memory, debugOpts) {
         this.clock = 0
     }
 
-    const dumpDebug = (text) => {
-        if (debugOpts.dump) {
-            fs.writeFileSync(
-            `./dump_${debugOpts.timestamp}`,
-            `${text}\n`,
-            { flag: 'a+' }
-        );
-        }
-    }
-
     this.setTima = (value) => {
         if (this.timaOverflowed && this.timaReloadClock > 0) {
-            memory.io[TIMA_REG - 0xFF00] = memory.io[TMA_REG - 0xFF00];
+            // fs.writeFileSync(`./dump_${time}`, `TIMA = TMA (${memory.getByte(TMA_REG).toString(16)})\n`, { flag: 'a+' })
+            memory.io[TIMA_REG - 0xFF00] = memory.getByte(TMA_REG);
         } else {
+            // fs.writeFileSync(`./dump_${time}`, `TIMA = ${value.toString(16)}\n`, { flag: 'a+' })
             memory.io[TIMA_REG - 0xFF00] = (value & 0xFF);
         }
     }
@@ -95,38 +89,45 @@ const Timer = function(memory, debugOpts) {
         }
     }
 
-    this.step = (t) => {
-        this.clock += t;
+    this.setDivReset = () => {
+        this.divReset = true;
+    }
+
+    this.step = (m = 1) => {
+        // this.clock += t;
+
+        // fs.writeFileSync(`./dump_${time}`, `step\n`, { flag: 'a+' })
         
         this.timerEnabled = this.timerIsEnabled();
 
         // We increase the 16-bit internal counter every cycle
         // DIV is just the 8 MSB of the 16-bit internal counter that gets incremented on every cycle
         // And it increases every 256 cycles (After the first 8 bits of the counter have wrapped to 0)
-        for (let i = 0; i < t; i++) {
+        for (let i = 0; i < (4 * m); i++) {
 
             // Delay the set of TIMA with TMA for 4 cycles
             if (this.timaOverflowed) {
                 this.timaReloadClock--;
 
                 if (this.timaReloadClock <= 0) {
-                    memory.io[TIMA_REG - 0xFF00] = memory.io[TMA_REG - 0xFF00] & 0xFF;
-                    memory.io[IF_REG - 0xFF00] = memory.io[IF_REG - 0xFF00] | 0b100;
+                    memory.io[TIMA_REG - 0xFF00] = memory.getByte(TMA_REG) & 0xFF;
+                    memory.setByte(IF_REG, memory.getByte(IF_REG) | 0b10);
                     this.timaOverflowed = false;
                 }
             }
 
-            let counter = (memory.io[DIV_REG - 0xFF00] << 8) | memory.io[COUNTER_REG - 0xFF00];
-            // We check the frequency bit to see if its gonna overflow
-            const frequencyBitState1 = (counter & (1 << this.getFrequencyCheckBit())) === 0 ? 0 : 1;
+            // We check the frequency bit to see if it overflows
+            const frequencyBitState1 = (memory.getWord(COUNTER_REG) & (1 << this.getFrequencyCheckBit())) === 0 ? 0 : 1;
 
-            // const counter = (memory.getWord(COUNTER_REG) + 1) & 0xFFFF;
+            // if (this.divReset) { // Skip if last operation reseted div
+                // this.divReset = false;
+            // } else {
+                const counter = (memory.getWord(COUNTER_REG) + 1) & 0xFFFF;
+                memory.io[COUNTER_REG - 0xFF00] = counter & 0xFF;
+                memory.io[DIV_REG - 0xFF00] = counter >> 8;
+            // }
 
-            counter = (counter + 1) & 0xFFFF;
-            memory.io[COUNTER_REG - 0xFF00] = counter & 0xFF;
-            memory.io[DIV_REG - 0xFF00] = counter >> 8;
-
-            const frequencyBitState2 = (counter & (1 << this.getFrequencyCheckBit())) === 0 ? 0 : 1;
+            const frequencyBitState2 = (memory.getWord(COUNTER_REG) & (1 << this.getFrequencyCheckBit())) === 0 ? 0 : 1;
             
             if (this.timerEnabled) {
                 if (frequencyBitState1 === 1 && frequencyBitState2 === 0) { // If the bit overflows we increase TIMA
@@ -141,7 +142,6 @@ const Timer = function(memory, debugOpts) {
             this.lastFrequencyBitState = frequencyBitState2;
             this.lastTimerEnabledState = this.timerEnabled;
         }
-        
     }
 }
 

@@ -5,28 +5,12 @@
 
 function Screen(memory) {
     
-    // Bit 7 - LCD Display Enable (0=Off, 1=On)
-    // Bit 6 - Window Tile Map Display Select (0=9800-9BFF, 1=9C00-9FFF)
-    // Bit 5 - Window Display Enable (0=Off, 1=On)
-    // Bit 4 - BG & Window Tile Data Select (0=8800-97FF, 1=8000-8FFF)
-    // Bit 3 - BG Tile Map Display Select (0=9800-9BFF, 1=9C00-9FFF)
-    // Bit 2 - OBJ (Sprite) Size (0=8x8, 1=8x16)
-    // Bit 1 - OBJ (Sprite) Display Enable (0=Off, 1=On)
-    // Bit 0 - BG Display (for CGB see below) (0=Off, 1=On)
     const LCDC_REG = 0xFF40;
-
-
-    // ScrollY (0xFF42): The Y Position of the BACKGROUND where to start drawing the viewing area from
     const SCROLLY_REG = 0xFF42;
-    // ScrollX (0xFF43): The X Position of the BACKGROUND to start drawing the viewing area from
     const SCROLLX_REG = 0xFF43;
-    // WindowY (0xFF4A): The Y Position of the VIEWING AREA to start drawing the window from
     const WINDOWY_REG = 0xFF4A;
-    // WindowX (0xFF4B): The X Positions -7 of the VIEWING AREA to start drawing the window from
     const WINDOWX_REG = 0xFF4B;
-
     const LY_REG = 0xFF44;
-
     const BACKGROUND_PALETTE_REG = 0xFF47
 
     const TILE_DATA_REG_1 = 0x8000;
@@ -35,15 +19,6 @@ function Screen(memory) {
     const SPRITE_PALETTE_REG_2 = 0xFF49;
     const OAM_START = 0xFE00;
 
-    // Sprite Attributes Byte
-    // Bit7: Sprite to Background Priority
-    // Bit6: Y flip
-    // Bit5: X flip
-    // Bit4: Palette number
-    // Bit3: Not used in standard gameboy
-    // Bit2-0: Not used in standard gameboy
-
-    // const canvas = document.querySelector('#screen');
     const SCREEN_WIDTH = 160;
     const SCREEN_HEIGHT = 144;
     
@@ -58,26 +33,13 @@ function Screen(memory) {
 
     this.renderLine = () => {
         if (memory.getByte(LCDC_REG) & 0b00000001) {
+            // console.log(memory.getByte(LY_REG));
             this.renderTiles();
         }
 
         if (memory.getByte(LCDC_REG) & 0b00000010) {
             this.renderSprites();
         }
-    }
-
-    this.render = (device) => {
-        // canvas.getContext('2d').fillStyle = 'white'
-        // canvas.getContext('2d').fillRect(0, 0, canvas.width, canvas.height);
-        // const pixelWidth = canvas.width / 160;
-        // const pixelHeight = canvas.height / 144;
-        
-        // for (let line = 0; line < 144; line++) {
-        //     for (let pixel = 0; pixel < 160; pixel++) {
-        //         canvas.getContext('2d').fillStyle = `rgb(${this.screenData[line][pixel][0]}, ${this.screenData[line][pixel][1]}, ${this.screenData[line][pixel][2]})`;
-        //         canvas.getContext('2d').fillRect(pixel * pixelWidth, line * pixelHeight, pixelWidth, pixelHeight);
-        //     }
-        // }
     }
 
     this.getColor = (colorId, paletteAddress) => {
@@ -173,10 +135,10 @@ function Screen(memory) {
 
     this.renderTiles = () => {
         // where to draw the visual area and the window
-        const scrollY = memory.getByte(SCROLLX_REG) ;
-        const scrollX = memory.getByte(SCROLLY_REG) ;
-        const windowY = memory.getByte(WINDOWX_REG) ;
-        const windowX = memory.getByte(WINDOWY_REG) - 7;
+        const scrollX = memory.getByte(SCROLLX_REG) ;
+        const scrollY = memory.getByte(SCROLLY_REG) ;
+        const windowX = memory.getByte(WINDOWX_REG) - 7;
+        const windowY = memory.getByte(WINDOWY_REG);
 
         let usingWindow = false ;
 
@@ -239,13 +201,6 @@ function Screen(memory) {
 
             const color = this.getColor(colorId, BACKGROUND_PALETTE_REG);
 
-            // switch(color) {
-            //     case 0: red = 255; green = 255 ; blue = 255; break ;
-            //     case 1: red = 0xCC; green = 0xCC ; blue = 0xCC; break ;
-            //     case 2: red = 0x77; green = 0x77 ; blue = 0x77; break ;
-            // }
-
-            
             // safety check to make sure what im about to set is int the 160x144 bounds
             const line = memory.getByte(LY_REG);
 
@@ -255,6 +210,7 @@ function Screen(memory) {
 
             this.screenData[line][pixel] = color;
         }
+
     }
 
 }
