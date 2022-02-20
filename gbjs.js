@@ -39,6 +39,7 @@ function GBJS(outputDevice = new CanvasOutputDevice(), debugOpts = { dump: false
     }
 
     cpu.setAdvanceCycles(this.advanceCycles);
+    
     this.initialize  = () => {
     }
 

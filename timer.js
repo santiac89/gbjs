@@ -10,6 +10,8 @@ const Timer = function(memory, debugOpts) {
 
     this.currentFrequency = 0;
     this.clock = 0;
+    this.timaOverflowed = false;
+    this.timaReloadClock = 0;
 
     this.getState = () => {
         return `
@@ -27,7 +29,7 @@ const Timer = function(memory, debugOpts) {
     this.increaseTimaAndInterrupt = (reason) => {
         memory.io[TIMA_REG - 0xFF00] = (memory.io[TIMA_REG - 0xFF00] + 1) & 0xFF;
 
-        dumpDebug('TIMA Increase: ' + reason);
+        dumpDebug(memory.io[TIMA_REG - 0xFF00].toString(16) + ' TIMA Increase: ' + reason);
         
         if (memory.io[TIMA_REG - 0xFF00] === 0) {
             dumpDebug('TIMA Overflow');
@@ -80,8 +82,11 @@ const Timer = function(memory, debugOpts) {
     }
 
     this.setTima = (value) => {
-        if (this.timaOverflowed && this.timaReloadClock > 0) {
+        if (this.timaOverflowed && this.timaReloadClock === 0) {
             memory.io[TIMA_REG - 0xFF00] = memory.io[TMA_REG - 0xFF00];
+        } else if (this.timaOverflowed  && this.timaReloadClock > 0) {
+            memory.io[TIMA_REG - 0xFF00] = (value & 0xFF);
+            // this.timaOverflowed = false;
         } else {
             memory.io[TIMA_REG - 0xFF00] = (value & 0xFF);
         }
@@ -96,7 +101,7 @@ const Timer = function(memory, debugOpts) {
     }
 
     this.step = (t) => {
-        this.clock += t;
+        // this.clock += t;
         
         this.timerEnabled = this.timerIsEnabled();
 
@@ -105,22 +110,9 @@ const Timer = function(memory, debugOpts) {
         // And it increases every 256 cycles (After the first 8 bits of the counter have wrapped to 0)
         for (let i = 0; i < t; i++) {
 
-            // Delay the set of TIMA with TMA for 4 cycles
-            if (this.timaOverflowed) {
-                this.timaReloadClock--;
-
-                if (this.timaReloadClock <= 0) {
-                    memory.io[TIMA_REG - 0xFF00] = memory.io[TMA_REG - 0xFF00] & 0xFF;
-                    memory.io[IF_REG - 0xFF00] = memory.io[IF_REG - 0xFF00] | 0b100;
-                    this.timaOverflowed = false;
-                }
-            }
-
             let counter = (memory.io[DIV_REG - 0xFF00] << 8) | memory.io[COUNTER_REG - 0xFF00];
             // We check the frequency bit to see if its gonna overflow
             const frequencyBitState1 = (counter & (1 << this.getFrequencyCheckBit())) === 0 ? 0 : 1;
-
-            // const counter = (memory.getWord(COUNTER_REG) + 1) & 0xFFFF;
 
             counter = (counter + 1) & 0xFFFF;
             memory.io[COUNTER_REG - 0xFF00] = counter & 0xFF;
@@ -140,6 +132,18 @@ const Timer = function(memory, debugOpts) {
 
             this.lastFrequencyBitState = frequencyBitState2;
             this.lastTimerEnabledState = this.timerEnabled;
+
+            // Delay the set of TIMA with TMA for 4 cycles
+            if (this.timaOverflowed) {
+                this.timaReloadClock--;
+                
+                if (this.timaReloadClock <= 0) {
+                    memory.io[TIMA_REG - 0xFF00] = memory.io[TMA_REG - 0xFF00] & 0xFF;
+                    memory.io[IF_REG - 0xFF00] = memory.io[IF_REG - 0xFF00] | 0b100;
+                    this.timaOverflowed = false;
+                }
+                
+            }
         }
         
     }

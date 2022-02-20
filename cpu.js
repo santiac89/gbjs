@@ -148,6 +148,7 @@ function CPU (memory, debugOpts) {
     // 0x78 0x79 0x7a 0x7b 0x7c 0x7d 0x7f
     // ld r,r	xx	4	––	r=r
     const ldrr = (op) => {
+        this.pendingCycles = 4;
         const r1 = op >> 3 & 0b00000111;
         const r2 = op & 0b00000111;
         
@@ -160,25 +161,24 @@ function CPU (memory, debugOpts) {
         }
 
         this.set8BitReg(r1, this.get8BitReg(r2));
-        this.pendingCycles = 4;
     }
 
     // 0x06 0x0E 0x16 0x1E 0x26 0x2E 0x3E
     // ld r,n	xx nn	8	––	r=n
     const ldrn = (op) => {
+        this.pendingCycles = 4;
         const r1 = op >> 3 & 0b00000111;
         const nn = this.getByte(this.PC++);
         this.set8BitReg(r1, nn);
-        this.pendingCycles += 4;
     }
 
     // 0x46 0x4e 0x56 0x5e 0x66 0x6e 0x7e
     // ld r,(HL)	xx	8	––	r=(HL)
     const ldrHL = (op) => {
+        this.pendingCycles = 4;
         const r1 = op >> 3 & 0b00000111;
         const value = this.getByte(this.get16BitReg(2));
         this.set8BitReg(r1, value);
-        this.pendingCycles += 4;
     }
 
     // 0x70 0x71 0x72 0x73 0x74 0x75 0x77
@@ -192,120 +192,120 @@ function CPU (memory, debugOpts) {
     // 0x36
     // ld (HL),n	36 nn	12	––	(HL)=n
     const ldHLn = (op) => {
+        this.pendingCycles = 4; 
         const nn = this.getByte(this.PC++);
         this.setByte(this.get16BitReg(2), nn);
-        this.pendingCycles += 4; 
     }
 
     // 0x0A
     // ld A,(BC)	0A	8	––	A=(BC)
     const ldABC = (op) => {
+        this.pendingCycles = 4;
         this.A = this.getByte(this.get16BitReg(0));
-        this.pendingCycles += 4;
     }
 
     // 0x1A
     // ld A,(DE)	1A	8	––	A=(DE)
     const ldADE = (op) => {
+        this.pendingCycles = 4;
         this.A = this.getByte(this.get16BitReg(1));
-        this.pendingCycles += 4;
     }
 
     // 0xFA
     // ld A,(nn)	FA	16	––	A=(nn)
     const ldAnn = (op) => {
+        this.pendingCycles = 4;
         const nn = this.getByte(this.PC) | (this.getByte(this.PC + 1) << 8);
         this.A = this.getByte(nn);
         this.PC += 2;
-        this.pendingCycles += 4;
     }
 
     // 0x02
     // ld (BC),A	02	8	––	(BC)=A
     const ldBCA = (op) => {
+        this.pendingCycles = 4;
         this.setByte(this.get16BitReg(0), this.A);
-        this.pendingCycles += 4;
     }
 
     // 0x12
     // ld (DE),A	12	8	––	(DE)=A
     const ldDEA = (op) => {
+        this.pendingCycles = 4;
         this.setByte(this.get16BitReg(1), this.A);
-        this.pendingCycles += 4;
     }
 
     // 0xEA
     // ld (nn),A	EA	16	––	(nn)=A
     const ldnnA = (op) => {
+        this.pendingCycles = 4;
         const n1 = this.getByte(this.PC++);
         const n2 = this.getByte(this.PC++);
         this.setByte((n2 << 8) + n1, this.A);
-        this.pendingCycles += 4;
     }
 
     // 0xF0
     // ld A,(FF00+n)	F0 nn	12	––	read from io-port n (memory FF00+n)
     const ldhAn = (op) => {
+        this.pendingCycles = 4;
         const nn = this.getByte(this.PC++);
         this.A = this.getByte(0xFF00 + nn);
-        this.pendingCycles += 4;
     }
     // 0xE0
     // ld (FF00+n),A	E0 nn	12	––	write to io-port n (memory FF00+n)
     const ldhnA = (op) => {
+        this.pendingCycles = 4;
         const nn = this.getByte(this.PC++);
         this.setByte(0xFF00 + nn, this.A);
-        this.pendingCycles += 4;
     }
 
     // 0xF2
     // ld A,(FF00+C)	F2	8	––	read from io-port C (memory FF00+C)
     const ldhAC = (op) => {
+        this.pendingCycles = 4;
         this.A = this.getByte(0xFF00 + this.C);
-        this.pendingCycles += 4;
     }
 
     // 0xE2
     // ld (FF00+C),A	E2	8	––	write to io-port C (memory FF00+C)
     const ldhCA = (op) => {
+        this.pendingCycles = 4;
         this.setByte(0xFF00 + this.C, this.A);
-        this.pendingCycles += 4;
     }
 
     // 0x22
     // ldi (HL),A	22	8	––	(HL)=A, HL=HL+1
     const ldiHLA = (op) => {
+        this.pendingCycles = 4;
         const HL = this.get16BitReg(2);
         this.setByte(HL, this.A);
         this.set16BitReg(2, HL + 1);
-        this.pendingCycles += 4;
     }
 
     // 0x2A
     // ldi A,(HL)	2A	8	––	A=(HL), HL=HL+1
     const ldiAHL = (op) => {
+        this.pendingCycles = 4;
         const HL = this.get16BitReg(2);
         this.A = this.getByte(HL);
         this.set16BitReg(2, HL + 1);
-        this.pendingCycles += 4;
     }
 
     // 0x32
     // ldd (HL),A	32	8	––	(HL)=A, HL=HL-1
     const lddHLA = (op) => {
+        this.pendingCycles = 4;
         const HL = this.get16BitReg(2);
         this.setByte(HL, this.A);
         this.set16BitReg(2, HL - 1);
-        this.pendingCycles += 4;
     }
 
     // 0x3A
     // ldd A,(HL)	3A	8	––	A=(HL), HL=HL-1
     const lddAHL = (op) => {
+        this.pendingCycles = 4;
         const HL = this.get16BitReg(2);
         this.A = this.getByte(HL);
         this.set16BitReg(2, HL - 1);
-        this.pendingCycles += 4;
     }
 
     // 16-bit Load instructions
@@ -314,20 +314,22 @@ function CPU (memory, debugOpts) {
     // 0x01 0x11 0x21 0x31
     // ld rr,nn	x1 nn nn	12	––	rr=nn (rr may be BC,DE,HL or SP)
     const ldrrnn = (op) => {
+        this.pendingCycles = 4;
         const rr = op >> 4 & 0b0000011;
         const nn = this.getByte(this.PC) | (this.getByte(this.PC + 1) << 8);
         this.set16BitReg(rr, nn);
         this.PC += 2;
-        this.pendingCycles += 4;
     }
 
     // 0x08
     // ld (nn),SP	08 nn nn	20	––	(nn)=SP
     const ldnnSP = (op) => {
+        this.pendingCycles = 4;
         const nn = this.getByte(this.PC) | (this.getByte(this.PC + 1) << 8);
-        memory.setWord(nn, this.SP);
+        // memory.setWord(nn, this.SP);
+        this.setByte(nn, this.SP & 0xFF);
+        this.setByte(nn + 1, this.SP >> 8);
         this.PC += 2;
-        this.pendingCycles += 4;
     }
 
     // 0xF9
@@ -342,7 +344,7 @@ function CPU (memory, debugOpts) {
     const pushrr = (op) => {
         const rr = op >> 4 & 0b0000011;
 
-        this.pendingCycles = 4;
+        this.pendingCycles = 8;
 
         if (rr === 0b11) { // AF special case
             this.decSP();
@@ -356,14 +358,12 @@ function CPU (memory, debugOpts) {
             this.decSP();
             this.setByte(this.SP, value & 0xFF);
         }
-
-        // this.set16BitReg(3, newSP);   
-        this.pendingCycles += 4;
     }
 
     // 0xC1 0xD1 0xE1 0xF1
     // pop rr	x1	12	(AF)	rr=(SP) SP=SP+2 ; rr may be BC,DE,HL,AF
     const poprr = (op) => {
+        this.pendingCycles = 4;
         const rr = op >> 4 & 0b00000011;
         
         if (rr === 0b11) { // AF special case
@@ -378,8 +378,6 @@ function CPU (memory, debugOpts) {
             this.incSP();
             this.set16BitReg(rr, (value2 << 8) | value1);
         }
-
-        this.pendingCycles += 4;
     }
 
     // 8-bit Arithmetic/Logic instructions
@@ -405,6 +403,7 @@ function CPU (memory, debugOpts) {
     // 0xC6
     // add A,n	C6 nn	8	z0hc	A=A+n
     const addAn = (op) => {
+        this.pendingCycles = 4;
         const nn = this.getByte(this.PC++);
         const h = ((this.A & 0b1111) + (nn & 0b1111)) & 0b10000;
         const c = (this.A + nn) & 0b100000000;
@@ -415,12 +414,12 @@ function CPU (memory, debugOpts) {
         if (this.A === 0) this.F = this.F | 0b10000000;
         if (h) this.F = this.F | 0b00100000;
         if (c) this.F = this.F | 0b00010000;
-        this.pendingCycles += 4;
     }
 
     // 0x86
     // add A,(HL)	86	8	z0hc	A=A+(HL)
     const addAHL = (op) => {
+        this.pendingCycles = 4;
         const HL = this.getByte(this.get16BitReg(2));
         const h = ((this.A & 0b1111) + (HL & 0b1111)) & 0b10000;
         const c = (this.A + HL) & 0b100000000;
@@ -431,7 +430,6 @@ function CPU (memory, debugOpts) {
         if (this.A === 0) this.F = this.F | 0b10000000;
         if (h) this.F = this.F | 0b00100000;
         if (c) this.F = this.F | 0b00010000;
-        this.pendingCycles += 4;
     }
 
     // 0x88 0x89 0x8A 0x8B 0x8C 0x8D 0x8F
@@ -454,6 +452,7 @@ function CPU (memory, debugOpts) {
     // 0xCE
     // adc A,n	CE nn	8	z0hc	A=A+n+cy
     const adcAn = (op) => {
+        this.pendingCycles = 4;
         const nn = this.getByte(this.PC++);
         const cy = this.F & 0b00010000 === 0 ? 0 : 1;
         const h = ((this.A & 0b1111) + (nn & 0b1111) + cy) & 0b10000;
@@ -465,12 +464,12 @@ function CPU (memory, debugOpts) {
         if (this.A === 0) this.F = this.F | 0b10000000;
         if (h) this.F = this.F | 0b00100000;
         if (c) this.F = this.F | 0b00010000;
-        this.pendingCycles += 4;
     }
 
     // 0x8E
     // adc A,(HL)	8E	8	z0hc	A=A+(HL)+cy
     const adcAHL = (op) => {
+        this.pendingCycles = 4;
         const HL = this.getByte(this.get16BitReg(2));
         const cy = this.F & 0b00010000 === 0 ? 0 : 1;
         const h = ((this.A & 0b1111) + (HL & 0b1111) + cy) & 0b10000;
@@ -482,7 +481,6 @@ function CPU (memory, debugOpts) {
         if (A === 0) this.F = this.F | 0b10000000;
         if (h) this.F = this.F | 0b00100000;
         if (c) this.F = this.F | 0b00010000;
-        this.pendingCycles += 4;
     }
 
     // 0x90 0x91 0x92 0x93 0x94 0x95 0x97
@@ -504,6 +502,7 @@ function CPU (memory, debugOpts) {
     // 0xD6
     // sub n	D6 nn	8	z1hc	A=A-n
     const subn = (op) => {
+        this.pendingCycles = 4;
         const nn = this.getByte(this.PC++);
         const c = this.A < nn;
         const h = (this.A & 0b1111) < (nn & 0b1111);
@@ -514,12 +513,12 @@ function CPU (memory, debugOpts) {
         if (this.A === 0) this.F = this.F | 0b10000000;
         if (h) this.F = this.F | 0b00100000;
         if (c) this.F = this.F | 0b00010000;
-        this.pendingCycles += 4;
     }
 
     // 0x96
     // sub (HL)	96	8	z1hc	A=A-(HL)
     const subHL = (op) => {
+        this.pendingCycles = 4;
         const HL = this.getByte(this.get16BitReg(2));
         const c = this.A < HL;
         const h = (this.A & 0b1111) < (HL & 0b1111);
@@ -530,7 +529,6 @@ function CPU (memory, debugOpts) {
         if (this.A === 0) this.F = this.F | 0b10000000;
         if (h) this.F = this.F | 0b00100000;
         if (c) this.F = this.F | 0b00010000;
-        this.pendingCycles += 4;
     }
 
     // 0x98 0x99 0x9A 0x9B 0x9C 0x9D 0x9F
@@ -553,6 +551,7 @@ function CPU (memory, debugOpts) {
     // 0xDE
     // sbc A,n	DE nn	8	z1hc	A=A-n-cy
     const sbcAn = (op) => {
+        this.pendingCycles = 4;
         const nn = this.getByte(this.PC++);
         const cy = this.F & 0b00010000 === 0 ? 0 : 1;
         const c = this.A < (nn + cy);
@@ -564,12 +563,12 @@ function CPU (memory, debugOpts) {
         if (this.A === 0) this.F = this.F | 0b10000000;
         if (h) this.F = this.F | 0b00100000;
         if (c) this.F = this.F | 0b00010000;
-        this.pendingCycles += 4;
     }
 
     // 0x9E
     // sbc A,(HL)	9E	8	z1hc	A=A-(HL)-cy
     const sbcAHL = (op) => {
+        this.pendingCycles = 4;
         const HL = this.getByte(this.get16BitReg(2));
         const cy = this.F & 0b00010000 === 0 ? 0 : 1;
         const c = this.A < (HL + cy);
@@ -581,7 +580,6 @@ function CPU (memory, debugOpts) {
         if (this.A === 0) this.F = this.F | 0b10000000;
         if (h) this.F = this.F | 0b00100000;
         if (c) this.F = this.F | 0b00010000;
-        this.pendingCycles += 4;
     }
 
     // 0xA0 0xA1 0xA2 0xA3 0xA4 0xA5 0xA7
@@ -599,23 +597,23 @@ function CPU (memory, debugOpts) {
     // 0xE6
     // and n	E6 nn	8	z010	A=A & n
     const andn = (op) => {
+        this.pendingCycles = 4;
         const nn = this.getByte(this.PC++);
         this.A = this.A & nn;
 
         this.F = 0b00100000;
         if (this.A === 0) this.F = this.F | 0b10000000;
-        this.pendingCycles += 4;
     }
 
     // 0xA6
     // and (HL)	A6	8	z010	A=A & (HL)
     const andHL = (op) => {
+        this.pendingCycles = 4;
         const HL = this.getByte(this.get16BitReg(2));
         this.A = this.A & HL;
 
         this.F = 0b00100000;
         if (this.A === 0) this.F = this.F | 0b10000000;
-        this.pendingCycles += 4;
     }
 
     // 0xA8 0xA9 0xAA 0xAB 0xAC 0xAD 0xAF
@@ -632,23 +630,23 @@ function CPU (memory, debugOpts) {
     // 0xEE
     // xor n	EE nn	8	z000	A=A xor n
     const xorn = (op) => {
+        this.pendingCycles = 4;
         const nn = this.getByte(this.PC++);
         this.A = this.A ^ nn;
 
         this.F = 0b00000000;
         if (this.A === 0) this.F = this.F | 0b10000000;
-        this.pendingCycles += 4;
     }
 
     // 0xAE
     // xor (HL)	AE	8	z000	A=A xor (HL)
     const xorHL = (op) => {
+        this.pendingCycles = 4;
         const HL = this.getByte(this.get16BitReg(2));
         this.A = this.A ^ HL;
 
         this.F = 0b00000000;
         if (this.A === 0) this.F = this.F | 0b10000000;
-        this.pendingCycles += 4;
     }
 
     // 0xB0 0xB1 0xB2 0xB3 0xB4 0xB5 0xB7
@@ -665,23 +663,23 @@ function CPU (memory, debugOpts) {
     // 0xF6
     // or n	F6 nn	8	z000	A=A | n
     const orn = (op) => {
+        this.pendingCycles = 4;
         const nn = this.getByte(this.PC++);
         this.A = this.A | nn;
 
         this.F = 0b00000000;
         if (this.A === 0) this.F = this.F | 0b10000000;
-        this.pendingCycles += 4;
     }
 
     // 0xB6
     // or (HL)	B6	8	z000	A=A | (HL)
     const orHL = (op) => {
+        this.pendingCycles = 4;
         const HL = this.getByte(this.get16BitReg(2));
         this.A = this.A | HL;
 
         this.F = 0b00000000;
         if (this.A === 0) this.F = this.F | 0b10000000;
-        this.pendingCycles += 4;
     }
 
     // 0xB8 0xB9 0xBA 0xBB 0xBC 0xBD 0xBF
@@ -702,6 +700,7 @@ function CPU (memory, debugOpts) {
     // 0xFE
     // cp n	FE nn	8	z1hc	compare A-n
     const cpn = (op) => {
+        this.pendingCycles = 4;
         const nn = this.getByte(this.PC++);
         const c = this.A < nn;
         const z = this.A === nn;
@@ -711,12 +710,12 @@ function CPU (memory, debugOpts) {
         if (z) this.F = this.F | 0b10000000;
         if (c) this.F = this.F | 0b00010000;
         if (h) this.F = this.F | 0b00100000;
-        this.pendingCycles += 4;
     }
 
     // 0xBE
     // cp (HL)	BE	8	z1hc	compare A-(HL)
     const cpHL = (op) => {
+        this.pendingCycles = 4;
         const HL = this.getByte(this.get16BitReg(2));
         const c = this.A < HL;
         const z = this.A === HL;
@@ -726,7 +725,6 @@ function CPU (memory, debugOpts) {
         if (z) this.F = this.F | 0b10000000;
         if (c) this.F = this.F | 0b00010000;
         if (h) this.F = this.F | 0b00100000;
-        this.pendingCycles += 4;
     }
 
     // 0x04 0x14 0x24 0x0C 0x1C 0x2C 0x3C
@@ -746,6 +744,7 @@ function CPU (memory, debugOpts) {
     // 0x34
     // inc (HL)	34	12	z0h-	(HL)=(HL)+1
     const incHL = (op) => {
+        this.pendingCycles = 4;
         let HL = this.getByte(this.get16BitReg(2));
         const h = ((HL & 0b1111) + 1) & 0b10000;
 
@@ -755,7 +754,6 @@ function CPU (memory, debugOpts) {
         this.F = this.F & 0b00010000;
         if (HL === 0) this.F = this.F | 0b10000000;
         if (h) this.F = this.F | 0b00100000;
-        this.pendingCycles += 4;
     }
 
     // 0x05 0x15 0x25 0x0D 0x1D 0x2D 0x3D
@@ -775,6 +773,7 @@ function CPU (memory, debugOpts) {
     // 0x35
     // dec (HL)	35	12	z1h-	(HL)=(HL)-1
     const decHL = (op) => {
+        this.pendingCycles = 4;
         let HL = this.getByte(this.get16BitReg(2));
         const h = ((HL & 0b1111) - 1) & 0b10000;
 
@@ -786,7 +785,6 @@ function CPU (memory, debugOpts) {
 
         if (HL === 0) this.F = this.F | 0b10000000;
         if (h) this.F = this.F | 0b00100000;
-        this.pendingCycles += 4;
     }
 
     // 0x27
@@ -869,6 +867,7 @@ function CPU (memory, debugOpts) {
     // 0xE8
     // add SP,dd	E8	16	00hc	SP = SP +/- dd ; dd is 8-bit signed number
     const addSPdd = (op) => {
+        this.pendingCycles = 4;
         const dd = this.getByte(this.PC++) << 24 >> 24;
         
         const h = ((this.SP & 0b1111) + (dd & 0b1111)) > 0b1111;
@@ -879,12 +878,13 @@ function CPU (memory, debugOpts) {
         this.F = 0b00000000;
         if (c) this.F = this.F | 0b00010000;
         if (h) this.F = this.F | 0b00100000;
-        this.pendingCycles += 12;
+        this.pendingCycles += 8;
     }
 
     // 0xF8
     // ld HL,SP+dd	F8	12	00hc	HL = SP +/- dd ; dd is 8-bit signed number
     const ldHLSPdd = (op) => {
+        this.pendingCycles = 4;
         const dd = this.getByte(this.PC++) << 24 >> 24;
 
         const h = ((this.SP & 0b1111) + (dd & 0b1111)) > 0b1111;
@@ -897,7 +897,7 @@ function CPU (memory, debugOpts) {
         this.F = 0b00000000;
         if (c) this.F = this.F | 0b00010000;
         if (h) this.F = this.F | 0b00100000;
-        this.pendingCycles += 8;
+        this.pendingCycles += 4;
     }
 
     // Rotate and Shift instructions
@@ -976,6 +976,7 @@ function CPU (memory, debugOpts) {
     // 0xCB06
     // rlc (HL)	CB 06	16	z00c	rotate left
     const rlcHL = (op) => {
+        this.pendingCycles = 4;
         let value = this.getByte(this.get16BitReg(2));
         const c = value & 0b10000000 ? 1 : 0;
         value = ((value << 1) + c) & 0b11111111;
@@ -985,7 +986,7 @@ function CPU (memory, debugOpts) {
         this.F = 0b00000000;
         if (c) this.F = this.F | 0b00010000;
         if (value === 0) this.F = this.F | 0b10000000;
-        this.pendingCycles += 8;
+        this.pendingCycles += 4;
     }
 
     // 0xCB10 0xCB11 0xCB12 0xCB13 0xCB14 0xCB15 0xCB17
@@ -1012,6 +1013,7 @@ function CPU (memory, debugOpts) {
     // 0xCB16
     // rl (HL)	CB 16	16	z00c	rotate left through carry
     const rlHL = (op) => {
+        this.pendingCycles = 4;
         const value = this.getByte(this.get16BitReg(2));
         const c = (this.F & 0b00010000) ? 1 : 0;
         this.F = 0b00000000;
@@ -1027,7 +1029,7 @@ function CPU (memory, debugOpts) {
         value = ((value << 1) + c) & 0b11111111;
         this.setByte(this.get16BitReg(2), value);
         if (value === 0) this.F = this.F | 0b10000000;
-        this.pendingCycles += 8;
+        this.pendingCycles += 4;
     }
 
     // 0xCB08 0xCB09 0xCB0A 0xCB0B 0xCB0C 0xCB0D 0xCB0F
@@ -1045,6 +1047,7 @@ function CPU (memory, debugOpts) {
     // 0xCB0E
     // rrc (HL)	CB 0E	16	z00c	rotate right
     const rrcHL = (op) => {
+        this.pendingCycles = 4;
         let value = this.getByte(this.get16BitReg(2));
         const c = value & 0b00000001 ? 1 : 0;
         value = (value >> 1) | (c * 0b10000000);
@@ -1054,7 +1057,7 @@ function CPU (memory, debugOpts) {
         this.F = 0b00000000;
         if (c) this.F = this.F | 0b00010000;
         if (value === 0) this.F = this.F | 0b10000000;
-        this.pendingCycles += 8;
+        this.pendingCycles += 4;
     }
 
     // 0xCB18 0xCB19 0xCB1A 0xCB1B 0xCB1C 0xCB1D 0xCB1F
@@ -1081,6 +1084,7 @@ function CPU (memory, debugOpts) {
     // 0xCB1E
     // rr (HL)	CB 1E	16	z00c	rotate right through carry
     const rrHL = (op) => {
+        this.pendingCycles = 4;
         const value = this.getByte(this.get16BitReg(2));
         const c = (this.F & 0b00010000) ? 1 : 0;
         this.F = 0b00000000;
@@ -1098,7 +1102,7 @@ function CPU (memory, debugOpts) {
         this.setByte(this.get16BitReg(2), value);
 
         if (value === 0) this.F = this.F | 0b10000000;
-        this.pendingCycles += 8;
+        this.pendingCycles += 4;
     }
 
     // 0xCB20 0xCB21 0xCB22 0xCB23 0xCB24 0xCB25 0xCB27
@@ -1115,13 +1119,14 @@ function CPU (memory, debugOpts) {
     // 0xCB26
     // sla (HL)	CB 26	16	z00c	shift left arithmetic (b0=0)
     const slaHL = (op) => {
+        this.pendingCycles = 4;
         const value = this.getByte(this.get16BitReg(2));
         this.F = 0b00000000;
         if (value & 0b10000000) this.F = this.F | 0b00010000;
         value = (value << 1) & 0b11111110;
         this.setByte(this.get16BitReg(2), value);
         if (value === 0) this.F = this.F | 0b10000000;
-        this.pendingCycles += 8;
+        this.pendingCycles += 4;
     }
 
     // 0xCB30 0xCB31 0xCB32 0xCB33 0xCB34 0xCB35 0xCB37
@@ -1141,12 +1146,13 @@ function CPU (memory, debugOpts) {
     // 0xCB36
     // swap (HL)	CB 36	16	z000	exchange low/hi-nibble
     const swapHL = (op) => {
+        this.pendingCycles = 4;
         this.F = 0b00000000;
         let value = this.getByte(this.get16BitReg(2));
         value = ((value & 0b11110000) >> 4) | ((value & 0b00001111) << 4);
         this.setByte(this.get16BitReg(2), value);
         if (value === 0) this.F = this.F | 0b10000000;
-        this.pendingCycles += 8;
+        this.pendingCycles += 4;
     }
 
     // 0xCB28 0xCB29 0xCB2A 0xCB2B 0xCB2C 0xCB2D 0xCB2F
@@ -1163,13 +1169,14 @@ function CPU (memory, debugOpts) {
     // 0xCB2E
     // sra (HL)	CB 2E	16	z00c	shift right arithmetic (b7=b7)
     const sraHL = (op) => {
+        this.pendingCycles = 4;
         const value = this.getByte(this.get16BitReg(2));
         this.F = 0b00000000;
         if (value & 0b00000001) this.F = this.F | 0b00010000;
         value = (value >> 1) | (value & 0b10000000);
         this.setByte(this.get16BitReg(2), value);
         if (value === 0) this.F = this.F | 0b10000000;
-        this.pendingCycles += 8;
+        this.pendingCycles += 4;
     }
 
     // 0xCB38 0xCB39 0xCB3A 0xCB3B 0xCB3C 0xCB3D 0xCB3F
@@ -1186,13 +1193,14 @@ function CPU (memory, debugOpts) {
     // 0xCB3E
     // srl (HL)	CB 3E	16	z00c	shift right logical (b7=0)
     const srlHL = (op) => {
+        this.pendingCycles = 4;
         const value = this.getByte(this.get16BitReg(2));
         this.F = 0b00000000;
         if (value & 0b00000001) this.F = this.F | 0b00010000;
         value = value >> 1;
         this.setByte(this.get16BitReg(2), value);
         if (value === 0) this.F = this.F | 0b10000000;
-        this.pendingCycles += 8;
+        this.pendingCycles += 4;
     }
 
     // Single-bit Operation instructions
@@ -1220,13 +1228,14 @@ function CPU (memory, debugOpts) {
     // 0xCB46 0xCB4E 0xCB56 0xCB5E 0xCB66 0xCB6E 0xCB76 0xCB7E
     // bit n,(HL)	CB xx	12	z01-	test bit n
     const bitnHL = (op) => {
+        this.pendingCycles = 4;
         const n = (op >> 3) & 0b00000111;
         const value = this.getByte(this.get16BitReg(2));
         this.F = this.F & 0b00010000;
         this.F = this.F | 0b00100000;
 
         if ((value & (1 << n)) === 0) this.F = this.F | 0b10000000;
-        this.pendingCycles += 8;
+        this.pendingCycles += 4;
     }
 
     // 0xCBC0 0xCBC1 0xCBC2 0xCBC3 0xCBC4 0xCBC5 0xCBC7
@@ -1248,11 +1257,12 @@ function CPU (memory, debugOpts) {
     // 0xCBC6 0xCBCE 0xCBD6 0xCBDE 0xCBE6 0xCBEE 0xCBF6 0xCBFE
     // set n,(HL)	CB xx	16	––	set bit n
     const setnHL = (op) => {
+        this.pendingCycles = 4;
         const n = (op >> 3) & 0b00000111;
         let value = this.getByte(this.get16BitReg(2));
         value = value | (1 << n);
         this.setByte(this.get16BitReg(2), value);
-        this.pendingCycles += 8;
+        this.pendingCycles += 4;
     }
 
     // 0xCB80 0xCB81 0xCB82 0xCB83 0xCB84 0xCB85 0xCB87
@@ -1274,11 +1284,12 @@ function CPU (memory, debugOpts) {
     // 0xCB86 0xCB8E 0xCB96 0xCB9E 0xCBA6 0xCBAA 0xCBAE 0xCBB6 0xCBBE
     // res n,(HL)	CB xx	16	––	reset bit n
     const resnHL = (op) => {
+        this.pendingCycles = 4;
         const n = (op >> 3) & 0b00000111;
         let value = this.getByte(this.get16BitReg(2));
         value = value & ~(1 << n);
         this.setByte(this.get16BitReg(2), value);
-        this.pendingCycles += 8;
+        this.pendingCycles += 4;
     }
 
     // CPU Control instructions
@@ -1369,9 +1380,9 @@ function CPU (memory, debugOpts) {
     // 0xC3
     // jp nn	C3 nn nn	12	––	jump to nn, this.PC=nn
     const jp = (op) => {
+        this.pendingCycles = 4;
         const nn = this.getByte(this.PC) | (this.getByte(this.PC + 1) << 8);
         this.PC = nn;
-        this.pendingCycles += 4;
     }
 
     // 0xE9
@@ -1384,23 +1395,23 @@ function CPU (memory, debugOpts) {
     // 0xC2 0xD2 0xCA 0xDA
     // jp f,nn	xx nn nn	16/12	––	conditional jump if nz,z,nc,c
     const jpf = (op) => {
+        this.pendingCycles = 4;
         const nn = this.getByte(this.PC) | (this.getByte(this.PC + 1) << 8);
 
         if (op === 0xC2 && (this.F & 0b10000000) === 0) {
             this.PC = nn;
-            this.pendingCycles += 8;
+            this.pendingCycles += 4;
         } else if (op === 0xCA && (this.F & 0b10000000) !== 0) {
             this.PC = nn;
-            this.pendingCycles += 8;
+            this.pendingCycles += 4;
         } else if (op === 0xD2 && (this.F & 0b00010000) === 0) {
             this.PC = nn;
-            this.pendingCycles += 8;
+            this.pendingCycles += 4;
         } else if (op === 0xDA && (this.F & 0b00010000) !== 0) {
             this.PC = nn;
-            this.pendingCycles += 8;
+            this.pendingCycles += 4;
         } else {
             this.PC += 2;
-            this.pendingCycles += 4;
         }
 
         
@@ -1409,37 +1420,37 @@ function CPU (memory, debugOpts) {
     // 0x18
     // jr PC+dd	18 dd	12	––	relative jump to nn (PC=PC+8-bit signed)
     const jr = (op) => {
+        this.pendingCycles = 4;
         const dd = this.getByte(this.PC++) << 24 >> 24;
         this.PC += dd;
-        this.pendingCycles += 8;
+        this.pendingCycles += 4;
     }
 
     // 0x20 0x28 0x30 0x38
     // jr f,PC+dd	xx dd	12/8	––	conditional relative jump if nz,z,nc,c
     const jrf = (op) => {
+        this.pendingCycles = 4;
         const dd = this.getByte(this.PC++) << 24 >> 24;
         
         if (op === 0x20 && (this.F & 0b10000000) === 0) {
             this.PC += dd;
-            this.pendingCycles += 8;
+            this.pendingCycles += 4;
         } else if (op === 0x28 && (this.F & 0b10000000) !== 0) {
             this.PC += dd;
-            this.pendingCycles += 8;
+            this.pendingCycles += 4;
         } else if (op === 0x30 && (this.F & 0b00010000) === 0) {
             this.PC += dd;
-            this.pendingCycles += 8;
+            this.pendingCycles += 4;
         } else if (op === 0x38 && (this.F & 0b00010000) !== 0) {
             this.PC += dd;
-            this.pendingCycles += 8;
-        } else {
-            // this.PC++;
             this.pendingCycles += 4;
         }
     }
 
     // 0xCD
     // call nn	CD nn nn	24	––	call to nn, SP=SP-2, (SP)=this.PC, this.PC=nn
-    const call = (op) =>{
+    const call = (op) => {
+        this.pendingCycles = 4;
         const nn = this.getByte(this.PC) | (this.getByte(this.PC + 1) << 8);
         const retPC = this.PC + 2;
 
@@ -1449,12 +1460,13 @@ function CPU (memory, debugOpts) {
         this.setByte(this.SP, retPC & 0xFF);
 
         this.PC = nn;
-        this.pendingCycles += 8;
+        this.pendingCycles += 4;
     }
 
     // 0xC4 0xCC 0xD4 0xDC
     // call f,nn	xx nn nn	24/12	––	conditional call if nz,z,nc,c
     const callfnn = (op) => {
+        this.pendingCycles = 12;
         if (op === 0xC4 && (F & 0b10000000) === 0) {
             call(op);
         } else if (op === 0xCC && (this.F & 0b10000000) !== 0) {
@@ -1465,39 +1477,46 @@ function CPU (memory, debugOpts) {
             call(op);
         } else {
             this.PC += 2;
-            this.pendingCycles = 12;
         }
     }
 
     // 0xC9
     // ret	C9	16	––	return, this.PC=(SP), SP=SP+2
     const ret = (op) => {
-        // this.pendingCycles = 4;
+        this.pendingCycles = 4;
         const n1 = this.getByte(this.SP);
         this.incSP();
         const n2 = this.getByte(this.SP);
         this.incSP();
         this.PC = n1 | (n2 << 8);
-        this.pendingCycles += 8;
+        this.pendingCycles += 4;
     }
 
     // 0xC0 0xC8 0xD0 0xD8
     // ret f	xx	20/8	––	conditional return if nz,z,nc,c
     const retf = (op) => {
+        this.pendingCycles = 4;
+        let shouldRet = false;
+
         if (op === 0xC0 && (this.F & 0b10000000) === 0) {
-            ret();
-            this.pendingCycles += 4;
+            shouldRet = true;
         } else if (op === 0xC8 && (this.F & 0b10000000) !== 0) {
-            ret();
-            this.pendingCycles += 4;
+            shouldRet = true;
         } else if (op === 0xD0 && (this.F & 0b00010000) === 0) {
-            ret();
-            this.pendingCycles += 4;
+            shouldRet = true;
         } else if (op === 0xD8 && (this.F & 0b00010000) !== 0) {
-            ret();
-            this.pendingCycles += 4;
+            shouldRet = true;
         } else {
-            this.pendingCycles = 8;
+            this.pendingCycles += 4;
+        }
+
+        if (shouldRet) {
+            const n1 = this.getByte(this.SP);
+            this.incSP();
+            const n2 = this.getByte(this.SP);
+            this.incSP();
+            this.PC = n1 | (n2 << 8);
+            this.pendingCycles += 8;
         }
     }
 
@@ -1511,7 +1530,8 @@ function CPU (memory, debugOpts) {
     // 0xC7 0xCF 0xD7 0xDF 0xE7 0xEF 0xF7 0xFF
     // rst n	xx	16	––	
     const rstn = (op) => {
-        this.pendingCycles = 4;
+        this.pendingCycles = 8;
+        
         this.decSP();
         this.setByte(this.SP, this.PC >> 8);
         this.decSP();
@@ -1534,8 +1554,6 @@ function CPU (memory, debugOpts) {
         } else if (op === 0xFF) {
             this.PC = 0x0038;
         }
-
-        this.pendingCycles += 4;
     }
 
     this.opcodesMap = {
