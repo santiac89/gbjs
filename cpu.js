@@ -1467,7 +1467,7 @@ function CPU (memory, debugOpts) {
     // call f,nn	xx nn nn	24/12	––	conditional call if nz,z,nc,c
     const callfnn = (op) => {
         this.pendingCycles = 12;
-        if (op === 0xC4 && (F & 0b10000000) === 0) {
+        if (op === 0xC4 && (this.F & 0b10000000) === 0) {
             call(op);
         } else if (op === 0xCC && (this.F & 0b10000000) !== 0) {
             call(op);

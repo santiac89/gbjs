@@ -4,9 +4,11 @@ const GBJS = require('./gbjs.js');
 
 const canvasOutput = new CanvasOutputDevice();
 
-const gbjs = new GBJS(canvasOutput, { dump: true, timestamp: Date.now(), testCallback: () => {} });
+const gbjs = new GBJS(canvasOutput, { dump: false, timestamp: Date.now(), testCallback: () => {} });
 
-gbjs.loadRom('./test_roms/acceptance/timer/tima_write_reloading.gb');
+// gbjs.loadRom('./dmg-acid2.gb');
+// gbjs.loadRom('./test_roms/blargg/09-op r,r.gb');
+gbjs.loadRom('./test_roms/visual/m2_win_en_toggle.gb');
 
 gbjs.initialize();
 

@@ -258,6 +258,7 @@ function Memory (debugOpts) {
             this[region.name][address - region.base] = 0;
             return;
         } else if (address === 0xFF04) { // DIV trap
+            // this.timer.setDiv();
             this[region.name][address - region.base] = 0;
             this[region.name][address - region.base - 1] = 0;
             return;

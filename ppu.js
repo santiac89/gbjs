@@ -28,11 +28,13 @@ function PPU (memory) {
     const READ_TILE_ID = 0;
     const READ_TILE_DATA_0 = 1;
     const READ_TILE_DATA_1 = 2;
-    const PUSH = 3;
+    const SLEEP = 3
+    const PUSH = 4;
     
     this.clock = 0;
     this.nextPixel = 0;
     this.pixelFifo = [];
+    this.spriteFifo = [];
     this.fetcherTileIndex = 0;
     this.windowLineCounter = 0;
     this.scrollX = 0;
@@ -88,7 +90,6 @@ function PPU (memory) {
             memory.io[STAT_REG - 0xFF00] |= 0b00000001;
             requestInterrupt = memory.io[STAT_REG - 0xFF00] & 0b1000;
         } else if (mode === OAM_SEARCH_MODE) {
-            
             memory.io[STAT_REG - 0xFF00] |= 0b00000010;
             requestInterrupt = memory.io[STAT_REG - 0xFF00] & 0b100000;
         } else if (mode === PIXEL_TRANSFER_MODE) {
@@ -158,35 +159,61 @@ function PPU (memory) {
         this.nextPixel = 0;
         this.fetcherTileIndex = 0;
         this.pixelFifo = [];
+        this.spriteFifo = [];
         this.currentFetcherStep = READ_TILE_ID;
         this.fetcherWaitCount = 2;
     }
 
-    this.stepFetcher = () => {
-        this.fetcherWaitCount--;
 
-        if (this.fetcherWaitCount <= 0) {
-            this.fetcherWaitCount = 2;
+    this.steps = [
+        SLEEP,
+        READ_TILE_ID,
+        SLEEP,
+        READ_TILE_DATA_0,
+        SLEEP,
+        READ_TILE_DATA_1,
+        PUSH,
+        PUSH
+    ]
+    
+
+    this.stepBackgroundFetcher = () => {
+        // this.fetcherWaitCount--;
+
+        // if (this.fetcherWaitCount <= 0) {
+            // this.fetcherWaitCount = 2;
             
-            if (this.currentFetcherStep === READ_TILE_ID) {
-                this.scrollX = memory.getByte(SCROLLX_REG);
-                this.scrollY = memory.getByte(SCROLLY_REG);
-                this.currentTileNumber = this.fetchTileNumber();
-                this.currentFetcherStep = READ_TILE_DATA_0;
-            } else if (this.currentFetcherStep === READ_TILE_DATA_0) {
-                this.tileData0 = this.fetchTileData(this.currentTileNumber, 0);
-                this.currentFetcherStep = READ_TILE_DATA_1;
-            } else if (this.currentFetcherStep === READ_TILE_DATA_1) {
-                this.tileData1 = this.fetchTileData(this.currentTileNumber, 1);
-                this.currentFetcherStep = PUSH;
-            } else if (this.currentFetcherStep === PUSH && this.pixelFifo.length <= 8) {
-                const tileLinePixels = this.getTileLinePixels(this.tileData0, this.tileData1);
-                this.pixelFifo = this.pixelFifo.concat(tileLinePixels);
-                this.fetcherTileIndex++;
-                this.currentFetcherStep = READ_TILE_ID;
+        if (this.steps[this.currentFetcherStep] === READ_TILE_ID) {
+            this.scrollX = memory.getByte(SCROLLX_REG);
+            this.scrollY = memory.getByte(SCROLLY_REG);
+            this.currentTileNumber = this.fetchTileNumber();
+            this.currentFetcherStep++;
+        } else if (this.steps[this.currentFetcherStep] === READ_TILE_DATA_0) {
+            this.tileData0 = this.fetchTileData(this.currentTileNumber, 0);
+            this.currentFetcherStep++;
+        } else if (this.steps[this.currentFetcherStep] === READ_TILE_DATA_1) {
+            this.tileData1 = this.fetchTileData(this.currentTileNumber, 1);
+            this.currentFetcherStep++;
+        } else if (this.steps[this.currentFetcherStep] === PUSH) {
+
+            if (this.currentFetcherStep < 7) {
+                this.currentFetcherStep++;
             }
+
+            if (this.pixelFifo.length > 0) return;
+
+            const tileLinePixels = this.getTileLinePixels(this.tileData0, this.tileData1);
+            this.pixelFifo = this.pixelFifo.concat(tileLinePixels);
+            
+            this.fetcherTileIndex++;
+
+            this.currentFetcherStep = 0;
+        } else if (this.steps[this.currentFetcherStep] === SLEEP) {
+            this.currentFetcherStep++;
         }
+        // }
     }
+
 
     this.step = (t) => {
         if (!this.isLCDEnabled()) {
@@ -207,14 +234,25 @@ function PPU (memory) {
 
             this.clock++;
 
-            if (this.currentMode === PIXEL_TRANSFER_MODE && this.isBackgroundEnabled()) {
-                this.stepFetcher();
+            if (this.currentMode === PIXEL_TRANSFER_MODE) {
+                this.stepBackgroundFetcher();
                 
-                if (this.pixelFifo.length > 8) {
-                    this.screenData[this.scanline][this.nextPixel++] = this.pixelFifo.shift();
-                } 
+                if (this.isBackgroundEnabled()) {
+                    
+                    if (this.pixelFifo.length > 8) {
+                        this.screenData[this.scanline][this.nextPixel++] = this.pixelFifo.shift();
+                    } 
+                }
+
+                if (this.isSpriteEnabled()) {
+                    if (this.spriteFifo.length > 8) {
+                        // this.screenData[this.scanline][this.nextPixel] = this.spriteFifo.shift();
+                    }
+                }
+
+                // this.nextPixel++;
             }
-            
+
             if (this.currentMode === OAM_SEARCH_MODE && this.clock === 80) { // End of OAM Search
                 this.setMode(PIXEL_TRANSFER_MODE);
             } else if (this.currentMode === PIXEL_TRANSFER_MODE && this.nextPixel === 160) { // End of Pixel Transfer 
@@ -228,18 +266,18 @@ function PPU (memory) {
                 } else {
                     this.clock = 0;
                     this.setMode(OAM_SEARCH_MODE);
+                    this.fetchSpriteData();
                 }
             } else if (this.currentMode === V_BLANK_MODE && this.clock <= 4560) {
                 if (this.clock % 456 === 0) {
                     this.incLineCountersAndInterrupt();
-                    this.resetFifo();
                 }
                 
                 if (this.clock === 4560) {
                     this.clock = 0;
                     this.incLineCountersAndInterrupt();
-                    this.resetFifo();
                     this.setMode(OAM_SEARCH_MODE);
+                    this.fetchSpriteData();
                 }
             }
         }
@@ -265,76 +303,78 @@ function PPU (memory) {
         return (bit2 << 1) | bit1;
     }
 
-    // this.renderSprites = () => {
-    //     let use8x16 = false;
+    this.fetchSpriteData = () => {
+        let use8x16 = false;
 
-    //     if (memory.getByte(LCDC_REG) & 0b00000100) {
-    //         use8x16 = true;
-    //     }
+            if (memory.getByte(LCDC_REG) & 0b00000100) {
+                use8x16 = true;
+            }
 
-    //     for (let sprite = 0 ; sprite < 40; sprite++) {
-    //         let spriteIndex = sprite * 4;
-    //         let positionY = memory.getByte(OAM_START + spriteIndex) - 16;
-    //         let positionX = memory.getByte(OAM_START + spriteIndex + 1) - 8;
-    //         let tileLocation = memory.getByte(OAM_START + spriteIndex + 2);
-    //         let attributes = memory.getByte(OAM_START + spriteIndex + 3);
+        
+        for (let sprite = 0 ; sprite < 40; sprite++) {
+            let spriteIndex = sprite * 4;
+            let positionY = memory.oam[spriteIndex] - 16;
+            let positionX = memory.oam[spriteIndex + 1] - 8;
+            let tileLocation = memory.oam[spriteIndex + 2];
+            let attributes = memory.oam[spriteIndex + 3];
 
-    //         let yFlip = attributes & 0b01000000;
-    //         let xFlip = attributes & 0b00100000;
+            let yFlip = attributes & 0b01000000;
+            let xFlip = attributes & 0b00100000;
 
-    //         const scanline = memory.getByte(LY_REG);
+            const scanline = memory.getByte(LY_REG);
 
-    //         let ysize = use8x16 ? 16 : 8;
+            let ysize = use8x16 ? 16 : 8;
 
-    //         // does this sprite intercept with the scanline, if not, skip to next sprite
-    //         if ((scanline < positionY) || (scanline >= (positionY + ysize))) continue;
-            
-    //         let line = scanline - positionY ;
+            // does this sprite intercept with the scanline, if not, skip to next sprite
+            if ((scanline < positionY) || (scanline >= (positionY + ysize))) continue;
 
-    //         // read the sprite in backwards in the y axis
-    //         if (yFlip) {
-    //             line -= ysize ;
-    //             line *= -1 ;
-    //         }
 
-    //         line *= 2; // same as for tiles
-    //         const dataAddress = (0x8000 + (tileLocation * 16)) + line;
-    //         const tileData1 = memory.getByte(dataAddress);
-    //         const tileData2 = memory.getByte(dataAddress + 1)
+            let line = scanline - positionY ;
 
-    //        // its easier to read in from right to left as pixel 0 is
-    //        // bit 7 in the colour data, pixel 1 is bit 6 etc...
-    //         for (let tilePixel = 7; tilePixel >= 0; tilePixel--) {
-    //             let colorBit = tilePixel ;
+            // read the sprite in backwards in the y axis
+            if (yFlip) {
+                line -= ysize ;
+                line *= -1 ;
+            }
+
+            line *= 2; // same as for tiles
+            const dataAddress = (0x8000 + (tileLocation * 16)) + line;
+            const tileData1 = memory.getByte(dataAddress);
+            const tileData2 = memory.getByte(dataAddress + 1);
+
+               // its easier to read in from right to left as pixel 0 is
+           // bit 7 in the colour data, pixel 1 is bit 6 etc...
+            for (let tilePixel = 7; tilePixel >= 0; tilePixel--) {
+                let colorBit = tilePixel ;
              
-    //             // read the sprite in backwards for the x axis
-    //             if (xFlip) {
-    //                 colorBit -= 7 ;
-    //                 colorBit *= -1 ;
-    //             }
+                // read the sprite in backwards for the x axis
+                if (xFlip) {
+                    colorBit -= 7 ;
+                    colorBit *= -1 ;
+                }
 
-    //             // the rest is the same as for tiles
-    //             const bit1 = (tileData1 & (1 << colorBit)) === 0 ? 0 : 1;
-    //             const bit2 = (tileData2 & (1 << colorBit)) === 0 ? 0 : 1;
-    //             const colorId = (bit2 << 1) | bit1;
+                // the rest is the same as for tiles
+                const bit1 = (tileData1 & (1 << colorBit)) === 0 ? 0 : 1;
+                const bit2 = (tileData2 & (1 << colorBit)) === 0 ? 0 : 1;
+                const colorId = (bit2 << 1) | bit1;
 
-    //             const paletteAddress = attributes & 0b10000 ? SPRITE_PALETTE_REG_2 : SPRITE_PALETTE_REG_1;
-    //             const color = this.getColor(colorId, paletteAddress);
+                const paletteAddress = attributes & 0b10000 ? SPRITE_PALETTE_REG_2 : SPRITE_PALETTE_REG_1;
+                const color = this.getColor(colorId, paletteAddress);
 
-    //             // white is transparent for sprites.
-    //             if (color === 0) continue;
+                // white is transparent for sprites.
+                if (color === 0) continue;
 
-    //             const pixel = positionX - tilePixel + 7;
+                const pixel = positionX - tilePixel + 7;
 
-    //             // sanity check
-    //             if ((scanline<0)||(scanline>143)||(pixel<0)||(pixel>159)) {
-    //                 continue ;
-    //             }
+                // sanity check
+                if ((scanline<0)||(scanline>143)||(pixel<0)||(pixel>159)) {
+                    continue ;
+                }
 
-    //             this.screenData[line][pixel] = color;
-    //         }
-    //     }
-    // }
+                this.spriteFifo.push(color);
+            }
+        }
+    }
 
     this.fetchTileNumber = () => {
         const windowX = memory.getByte(WINDOWX_REG) - 7;

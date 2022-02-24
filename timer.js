@@ -52,17 +52,6 @@ const Timer = function(memory, debugOpts) {
         }
     }
 
-
-    this.checkClockFrequencyChange = () => {
-        const lastFrequency = memory.io[TAC_REG - 0xFF00] & 0b11;
-
-        if (lastFrequency != this.currentFrequency) {
-            memory.io[COUNTER_REG - 0xFF00] = 0;
-            memory.io[DIV_REG - 0xFF00] = 0;
-            this.currentFrequency = lastFrequency;
-        }
-    }
-
     // T-Clock speed 4194304 Hz
     // M-Clock speed 1048576 Hz
     // Timer speed 262144 Hz
@@ -100,15 +89,29 @@ const Timer = function(memory, debugOpts) {
         }
     }
 
-    this.step = (t) => {
-        // this.clock += t;
+    this.setDiv = (value) => {
+        this.resetDiv = true;
         
-        this.timerEnabled = this.timerIsEnabled();
+    }
 
+    this.step = (t) => {
         // We increase the 16-bit internal counter every cycle
         // DIV is just the 8 MSB of the 16-bit internal counter that gets incremented on every cycle
         // And it increases every 256 cycles (After the first 8 bits of the counter have wrapped to 0)
         for (let i = 0; i < t; i++) {
+            this.timerEnabled = this.timerIsEnabled();
+
+              // Delay the set of TIMA with TMA for 4 cycles
+            if (this.timaOverflowed) {
+                this.timaReloadClock--;
+
+                if (this.timaReloadClock <= 0) {
+                    memory.io[TIMA_REG - 0xFF00] = memory.io[TMA_REG - 0xFF00] & 0xFF;
+                    memory.io[IF_REG - 0xFF00] = memory.io[IF_REG - 0xFF00] | 0b100;
+                    this.timaOverflowed = false;
+                }
+                
+            }
 
             let counter = (memory.io[DIV_REG - 0xFF00] << 8) | memory.io[COUNTER_REG - 0xFF00];
             // We check the frequency bit to see if its gonna overflow
@@ -132,19 +135,13 @@ const Timer = function(memory, debugOpts) {
 
             this.lastFrequencyBitState = frequencyBitState2;
             this.lastTimerEnabledState = this.timerEnabled;
-
-            // Delay the set of TIMA with TMA for 4 cycles
-            if (this.timaOverflowed) {
-                this.timaReloadClock--;
-                
-                if (this.timaReloadClock <= 0) {
-                    memory.io[TIMA_REG - 0xFF00] = memory.io[TMA_REG - 0xFF00] & 0xFF;
-                    memory.io[IF_REG - 0xFF00] = memory.io[IF_REG - 0xFF00] | 0b100;
-                    this.timaOverflowed = false;
-                }
-                
-            }
         }
+
+        // if (this.resetDiv) {
+        //     memory.io[COUNTER_REG - 0xFF00] = 0;
+        // memory.io[DIV_REG - 0xFF00] = 0;
+        // this.resetDiv = false;
+        // }
         
     }
 }
